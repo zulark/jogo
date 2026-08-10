@@ -1,0 +1,143 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://ui/mission_briefing.gd" id="1_briefing"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(0.086, 0.094, 0.106, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.19, 0.204, 0.227, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[node name="MissionBriefing" type="PanelContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+script = ExtResource("1_briefing")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 2
+theme_override_constants/margin_left = 28
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 28
+theme_override_constants/margin_bottom = 24
+
+[node name="Root" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Margin/Root"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.925, 0.937, 0.949, 1)
+theme_override_font_sizes/font_size = 26
+text = "MISSION TITLE"
+
+[node name="Subtitle" type="Label" parent="Margin/Root"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.553, 0.58, 0.612, 1)
+theme_override_font_sizes/font_size = 13
+text = "TYPE · 0 operators · 0 days · 0 diamonds"
+
+[node name="BriefingText" type="Label" parent="Margin/Root"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.659, 0.69, 0.659, 1)
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+text = ""
+
+[node name="TopRule" type="HSeparator" parent="Margin/Root"]
+layout_mode = 2
+
+[node name="Scroll" type="ScrollContainer" parent="Margin/Root"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Breakdown" type="VBoxContainer" parent="Margin/Root/Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 3
+
+[node name="BottomRule" type="HSeparator" parent="Margin/Root"]
+layout_mode = 2
+
+[node name="SquadTerms" type="VBoxContainer" parent="Margin/Root"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="ScoreRow" type="HBoxContainer" parent="Margin/Root"]
+layout_mode = 2
+
+[node name="ScoreLabel" type="Label" parent="Margin/Root/ScoreRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.784, 0.804, 0.831, 1)
+theme_override_font_sizes/font_size = 15
+text = "SQUAD SCORE"
+
+[node name="ScoreValue" type="Label" parent="Margin/Root/ScoreRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.925, 0.937, 0.949, 1)
+theme_override_font_sizes/font_size = 15
+text = "0.0"
+horizontal_alignment = 2
+
+[node name="DifficultyRow" type="HBoxContainer" parent="Margin/Root"]
+layout_mode = 2
+
+[node name="DifficultyLabel" type="Label" parent="Margin/Root/DifficultyRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.784, 0.804, 0.831, 1)
+theme_override_font_sizes/font_size = 15
+text = "MISSION DIFFICULTY"
+
+[node name="DifficultyValue" type="Label" parent="Margin/Root/DifficultyRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.925, 0.937, 0.949, 1)
+theme_override_font_sizes/font_size = 15
+text = "0.0"
+horizontal_alignment = 2
+
+[node name="ChanceRow" type="HBoxContainer" parent="Margin/Root"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="ChanceLabel" type="Label" parent="Margin/Root/ChanceRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.925, 0.937, 0.949, 1)
+theme_override_font_sizes/font_size = 20
+text = "SUCCESS CHANCE"
+
+[node name="ChanceBar" type="ProgressBar" parent="Margin/Root/ChanceRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 22)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+show_percentage = false
+
+[node name="ChanceValue" type="Label" parent="Margin/Root/ChanceRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "0%"
+horizontal_alignment = 2

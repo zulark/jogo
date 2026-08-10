@@ -1,0 +1,260 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://ui/hq.gd" id="1_hq"]
+[ext_resource type="PackedScene" path="res://ui/after_action.tscn" id="2_after"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_header"]
+content_margin_left = 20.0
+content_margin_top = 12.0
+content_margin_right = 20.0
+content_margin_bottom = 12.0
+bg_color = Color(0.086, 0.094, 0.106, 1)
+border_width_bottom = 1
+border_color = Color(0.188, 0.204, 0.227, 1)
+
+[node name="HQ" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_hq")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.051, 0.055, 0.063, 1)
+
+[node name="Layout" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 0
+
+[node name="Header" type="PanelContainer" parent="Layout"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_header")
+
+[node name="HeaderRow" type="HBoxContainer" parent="Layout/Header"]
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="Company" type="VBoxContainer" parent="Layout/Header/HeaderRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 1
+
+[node name="DayLabel" type="Label" parent="Layout/Header/HeaderRow/Company"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.925, 0.937, 0.949, 1)
+theme_override_font_sizes/font_size = 17
+text = "Day 1"
+
+[node name="PayrollLabel" type="Label" parent="Layout/Header/HeaderRow/Company"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.408, 0.431, 0.459, 1)
+theme_override_font_sizes/font_size = 12
+text = "0/wk payroll"
+
+[node name="FieldLabel" type="Label" parent="Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_colors/font_color = Color(0.431, 0.659, 0.863, 1)
+theme_override_font_sizes/font_size = 13
+text = "0 in the field"
+
+[node name="DiamondsLabel" type="Label" parent="Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_colors/font_color = Color(0.925, 0.937, 0.949, 1)
+theme_override_font_sizes/font_size = 18
+text = "0 diamonds"
+
+[node name="SaveButton" type="Button" parent="Layout/Header/HeaderRow"]
+custom_minimum_size = Vector2(64, 38)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Save"
+
+[node name="LoadButton" type="Button" parent="Layout/Header/HeaderRow"]
+custom_minimum_size = Vector2(64, 38)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Load"
+
+[node name="EndDayButton" type="Button" parent="Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 38)
+layout_mode = 2
+size_flags_vertical = 4
+text = "End Day"
+
+[node name="Tabs" type="HBoxContainer" parent="Layout"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="TabMargin" type="MarginContainer" parent="Layout/Tabs"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 12
+
+[node name="TabRow" type="HBoxContainer" parent="Layout/Tabs/TabMargin"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ContractsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Contracts"
+
+[node name="RosterTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Operators"
+
+[node name="RecruitsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Recruits"
+
+[node name="TrainingTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Training"
+
+[node name="IntelTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Intel"
+
+[node name="BaseTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Base"
+
+[node name="MarketTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Market"
+
+[node name="ClientsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Clients"
+
+[node name="BondsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Bonds"
+
+[node name="CemeteryTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Cemetery"
+
+[node name="Content" type="MarginContainer" parent="Layout"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 20
+
+[node name="StatusBar" type="PanelContainer" parent="Layout"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_header")
+
+[node name="StatusRow" type="HBoxContainer" parent="Layout/StatusBar"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Drawer" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 0.42
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_bottom = -52.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="DrawerMargin" type="MarginContainer" parent="Drawer"]
+layout_mode = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 14
+
+[node name="DrawerBox" type="VBoxContainer" parent="Drawer/DrawerMargin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="DrawerHeader" type="HBoxContainer" parent="Drawer/DrawerMargin/DrawerBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="DrawerTitle" type="Label" parent="Drawer/DrawerMargin/DrawerBox/DrawerHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.812, 0.616, 0.247, 1)
+theme_override_font_sizes/font_size = 17
+text = "PANEL"
+
+[node name="DrawerClose" type="Button" parent="Drawer/DrawerMargin/DrawerBox/DrawerHeader"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(90, 32)
+layout_mode = 2
+text = "Close"
+
+[node name="DrawerContent" type="MarginContainer" parent="Drawer/DrawerMargin/DrawerBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="AfterAction" parent="." instance=ExtResource("2_after")]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+
+[connection signal="pressed" from="Layout/Header/HeaderRow/SaveButton" to="." method="_on_save_pressed"]
+[connection signal="pressed" from="Layout/Header/HeaderRow/LoadButton" to="." method="_on_load_pressed"]
+[connection signal="pressed" from="Layout/Header/HeaderRow/EndDayButton" to="." method="_on_end_day_pressed"]

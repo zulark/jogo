@@ -1,0 +1,134 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://ui/contracts_screen.gd" id="1_contracts"]
+[ext_resource type="Script" path="res://ui/world_map.gd" id="2_map"]
+
+[node name="ContractsScreen" type="VBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 12
+script = ExtResource("1_contracts")
+
+[node name="ModeTabs" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ContractsMode" type="Button" parent="ModeTabs"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 32)
+layout_mode = 2
+toggle_mode = true
+button_pressed = true
+text = "Contracts"
+
+[node name="StandingMode" type="Button" parent="ModeTabs"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 32)
+layout_mode = 2
+toggle_mode = true
+text = "Standing work"
+
+[node name="Body" type="HBoxContainer" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 14
+
+[node name="MapPanel" type="PanelContainer" parent="Body"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Map" type="Control" parent="Body/MapPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+script = ExtResource("2_map")
+
+[node name="ListScroll" type="ScrollContainer" parent="Body"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+horizontal_scroll_mode = 0
+
+[node name="ContractList" type="VBoxContainer" parent="Body/ListScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 5
+
+[node name="Side" type="PanelContainer" parent="Body"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(430, 0)
+layout_mode = 2
+size_flags_horizontal = 0
+
+[node name="SideMargin" type="MarginContainer" parent="Body/Side"]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 16
+
+[node name="SideScroll" type="ScrollContainer" parent="Body/Side/SideMargin"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="SidePad" type="MarginContainer" parent="Body/Side/SideMargin/SideScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/margin_right = 12
+
+[node name="SideBox" type="VBoxContainer" parent="Body/Side/SideMargin/SideScroll/SidePad"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="EmptyHint" type="Label" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.408, 0.431, 0.459, 1)
+theme_override_font_sizes/font_size = 14
+text = "The board is empty. New contracts come in at the end of the week."
+
+[node name="Detail" type="Label" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = ""
+
+[node name="Footer" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Hint" type="Label" parent="Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_colors/font_color = Color(0.408, 0.431, 0.459, 1)
+theme_override_font_sizes/font_size = 12
+text = "Contracts expire. Letting the board rot is itself a decision."
+
+[node name="ScoutButton" type="Button" parent="Footer"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(170, 40)
+layout_mode = 2
+text = "Scout"
+
+[node name="AssembleButton" type="Button" parent="Footer"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(170, 40)
+layout_mode = 2
+disabled = true
+text = "Assemble Squad"
+
+[connection signal="pressed" from="Footer/ScoutButton" to="." method="_on_scout_pressed"]
+[connection signal="pressed" from="Footer/AssembleButton" to="." method="_on_assemble_pressed"]

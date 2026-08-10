@@ -1,0 +1,344 @@
+extends SceneTree
+
+## Drives the HQ through every screen and captures each one.
+##
+##   Godot.exe --path . --script res://tests/screenshot_hq.gd
+##
+## Must NOT be run with --headless: the dummy renderer produces a blank image.
+##
+## Each step runs on its own frame with a couple of settling frames after it,
+## because containers do not lay out until they have been processed.
+
+const OUT_DIR := "res://.screenshots"
+const WINDOW_SIZE := Vector2i(1280, 820)
+const SETTLE := 3
+
+## Mirrors hq.gd's Tab enum. Duplicated rather than reached through the instance
+## because a script-level enum is not addressable from an untyped node handle.
+##
+## Hand-mirroring an enum is a standing trap: these drifted once already and
+## TAB_CEMETERY pointed at Clients, so the "cemetery" screenshot was quietly of
+## another screen. _check_tabs_match() below asserts the mirror is still true.
+const TAB_ROSTER := 0
+const TAB_CONTRACTS := 1
+const TAB_RECRUITS := 2
+const TAB_TRAINING := 3
+const TAB_INTEL := 4
+const TAB_BASE := 5
+const TAB_MARKET := 6
+const TAB_CLIENTS := 7
+const TAB_BONDS := 8
+const TAB_CEMETERY := 9
+
+var _hq: Control = null
+var _step := 0
+var _frames := 0
+var _steps: Array = []
+
+
+func _initialize() -> void:
+	_steps = [
+		{"do": func(): pass, "shot": "hq_contracts"},
+		{"do": _select_contract, "shot": "hq_contract_detail"},
+		{"do": func(): _hq._show_tab(TAB_ROSTER), "shot": "hq_roster"},
+		{"do": func(): _hq._show_tab(TAB_RECRUITS), "shot": "hq_recruits"},
+		{"do": _open_builder, "shot": "hq_squad_builder"},
+		{"do": _fill_squad, "shot": "hq_squad_builder_filled"},
+		{"do": _deploy_and_run, "shot": "hq_after_action"},
+		{"do": _open_kill_feed, "shot": "hq_after_action_feed"},
+		{"do": _dismiss_modal_and_train, "shot": "hq_training"},
+		{"do": _open_intel, "shot": "hq_intel"},
+		{"do": _open_standing_work, "shot": "hq_standing_work"},
+		{"do": _run_until_losses, "shot": "hq_cemetery"},
+		{"do": func(): _hq._show_tab(TAB_ROSTER), "shot": "hq_roster_career"},
+		{"do": func(): _hq._show_tab(TAB_BASE), "shot": "hq_base"},
+		{"do": _open_stocked_market, "shot": "hq_market"},
+		{"do": _open_inventory_drawer, "shot": "hq_drawer_inventory"},
+	]
+
+
+## Give the shops something to sell, or the market screen only ever shows its
+## empty state.
+func _open_stocked_market() -> void:
+	var state: GameState = Game.campaign.state
+	state.diamonds += 40000
+	Game.campaign.upgrade_facility(FacilityLibrary.ARMOURY)
+	Game.campaign.upgrade_facility(FacilityLibrary.ARMOURY)
+	Game.campaign.upgrade_facility(FacilityLibrary.WAREHOUSE)
+	Game.campaign.buy_item(ItemLibrary.get_item(&"service_carbine"))
+	Game.campaign.buy_item(ItemLibrary.get_item(&"battle_rifle"))
+	_hq._show_tab(TAB_MARKET)
+
+
+func _process(_delta: float) -> bool:
+	_frames += 1
+
+	if _frames == 1:
+		DisplayServer.window_set_size(WINDOW_SIZE)
+		root.size = WINDOW_SIZE
+		var scene: PackedScene = load("res://ui/hq.tscn")
+		_hq = scene.instantiate()
+		root.add_child(_hq)
+		_check_tabs_match()
+		return false
+
+	if _frames < SETTLE:
+		return false
+
+	# One step per settling window: act, let it lay out, capture, move on.
+	var index: int = (_frames - SETTLE) / SETTLE
+	var phase: int = (_frames - SETTLE) % SETTLE
+
+	if index >= _steps.size():
+		return true
+
+	var step: Dictionary = _steps[index]
+	if phase == 0:
+		step["do"].call()
+	elif phase == SETTLE - 1:
+		_capture(step["shot"])
+
+	return false
+
+
+## Select a contract, forced into the tallest shape the panel can take.
+##
+## The side panel grows with the contract: an assassination adds a TARGET block,
+## a call-up replaces the expiry line with a longer warning, and a hazard region
+## adds another. All three at once used to push the panel past the window and
+## carry the header off the top of the screen with it, so that is the case worth
+## capturing rather than whichever contract happened to be first.
+func _select_contract() -> void:
+	var screen: Control = _hq._screen
+	var board: Array = Game.campaign.state.board
+	if not (screen is ContractsScreen) or board.is_empty():
+		return
+
+	var mission: MissionData = board[0]
+	mission.mission_type = GameEnums.MissionType.ASSASSINATION
+	mission.target_name = "Akinyi Ochieng"
+	mission.target_title = "regional warlord and arms broker"
+	mission.is_call_up = true
+
+	(screen as ContractsScreen)._selected = mission
+	(screen as ContractsScreen).refresh()
+
+
+func _open_builder() -> void:
+	_hq._show_tab(TAB_CONTRACTS)
+	var board: Array = Game.campaign.state.board
+	if not board.is_empty():
+		_hq._open_squad_builder(board[0])
+
+
+func _fill_squad() -> void:
+	var builder: Control = _hq._screen
+	if builder == null or not builder is SquadBuilder:
+		return
+	var free: Array = Game.campaign.state.available_operators()
+	for i in mini(4, free.size()):
+		builder._squad.add(free[i], free[i].preferred_role)
+	if builder._squad.size() > 0:
+		builder._squad.set_leader(builder._squad.members()[0])
+	builder.refresh()
+
+
+## Deploy, then end days until the squad comes home, so the after-action modal
+## has something real to show.
+func _deploy_and_run() -> void:
+	var builder: Control = _hq._screen
+	if builder is SquadBuilder:
+		(builder as SquadBuilder)._on_deploy_pressed()
+
+	for i in 8:
+		if Game.campaign.state.deployments.is_empty() and i > 0:
+			break
+		_hq._on_end_day_pressed()
+
+
+## The tallest the debrief ever gets: every kill line expanded. If the card fits
+## here it fits anywhere.
+func _open_kill_feed() -> void:
+	for node in _hq._after_action.find_children("*", "Button", true, false):
+		if node.text.begins_with("Show kill feed"):
+			node.pressed.emit()
+			return
+	printerr("CHECK after-action had no kill feed toggle to open")
+
+
+## The Intel screen with a contract and a team already picked, so the footer
+## shows the real trade rather than "pick a contract".
+func _open_intel() -> void:
+	_hq._show_tab(TAB_INTEL)
+	var screen: Control = _hq._screen
+	if screen == null or not screen is IntelScreen:
+		printerr("CHECK intel tab did not open the intel screen")
+		return
+
+	var state := Game.campaign.state
+	for mission in state.board:
+		if not mission.scouted and not mission.is_being_scouted():
+			screen._target = mission
+			break
+
+	for op in Game.campaign.intel_candidates():
+		if screen._team.size() >= Balance.INTEL_MAX_TEAM:
+			break
+		screen._team.append(op)
+	screen.refresh()
+
+
+## Close the after-action modal, then set a class running so the Training screen
+## has an in-progress session to show rather than three empty columns.
+## Standing work with a job selected, so the panel shows the staffing controls
+## rather than its "pick one" state.
+func _open_standing_work() -> void:
+	_hq._show_tab(TAB_CONTRACTS)
+	var screen: Control = _hq._screen
+	if not (screen is ContractsScreen):
+		printerr("CHECK contracts tab did not open the contracts screen")
+		return
+
+	screen._showing_side_jobs = true
+	var jobs: Array = Game.campaign.state.side_jobs
+	if jobs.is_empty():
+		printerr("CHECK no standing work on offer to capture")
+	else:
+		screen._selected_job = jobs[0]
+	screen.refresh()
+
+
+func _dismiss_modal_and_train() -> void:
+	_hq._after_action.hide()
+	var state: GameState = Game.campaign.state
+
+	# Bring everyone home first, or every possible mentor is still in the field
+	# and the screen only ever shows its empty state.
+	for i in 12:
+		if state.deployments.is_empty():
+			break
+		_hq._on_end_day_pressed()
+		_hq._after_action.hide()
+
+	var mentors: Array = state.potential_mentors()
+	for mentor in mentors:
+		for trainee in state.available_operators():
+			if Progression.can_train(mentor, trainee):
+				Game.campaign.start_training(mentor, trainee)
+				break
+		if not state.training.is_empty():
+			break
+
+	_hq._show_tab(TAB_TRAINING)
+
+
+## Keep deploying and ending days until somebody is buried, so the Cemetery
+## screen is shown with real entries rather than its empty state.
+func _run_until_losses() -> void:
+	for i in 90:
+		if Game.campaign.state.cemetery.size() >= 2:
+			break
+		_force_deployment()
+		_hq._on_end_day_pressed()
+		_hq._after_action.hide()
+	_hq._show_tab(TAB_CEMETERY)
+
+
+func _force_deployment() -> void:
+	var state: GameState = Game.campaign.state
+	var free: Array = state.deployable_operators()
+	if free.size() < 3 or state.board.is_empty():
+		return
+	var squad := Squad.new()
+	for i in mini(4, free.size()):
+		squad.add(free[i], free[i].preferred_role)
+	squad.set_leader(free[0])
+	Game.campaign.deploy(squad, state.board[0])
+
+
+## Open the inventory drawer while sitting on another screen — the whole point
+## of a drawer is that the screen underneath stays put.
+func _open_inventory_drawer() -> void:
+	_hq._show_tab(TAB_ROSTER)
+	_hq._toggle_drawer("stock", "Inventory",
+		load("res://ui/inventory_screen.tscn"))
+
+
+func _capture(name: String) -> void:
+	_check_shell_intact(name)
+
+	DirAccess.make_dir_recursive_absolute(OUT_DIR)
+	var path := "%s/%s.png" % [OUT_DIR, name]
+	var image: Image = root.get_texture().get_image()
+	if image.save_png(path) == OK:
+		print("Saved %s" % path)
+	else:
+		printerr("save_png failed for %s" % path)
+
+
+## The header and the dock must stay where they are on every screen.
+##
+## A screen whose content is taller than the content area grows the shell's
+## VBoxContainer past the window, and because the layout grows from its centre
+## the header slides off the top and the dock off the bottom — the two things
+## always meant to be reachable. An assassination contract did exactly this: its
+## detail panel carries an extra TARGET block, and that one block was enough.
+## Cheaper to assert than to notice in a PNG.
+func _check_shell_intact(name: String) -> void:
+	var header: Control = _hq.get_node("Layout/Header")
+	var status: Control = _hq.get_node("Layout/StatusBar")
+	var bottom: float = status.global_position.y + status.size.y
+
+	if header.global_position.y < -0.5:
+		printerr("CHECK %s: header pushed off the top (y=%.0f)"
+			% [name, header.global_position.y])
+	if bottom > float(WINDOW_SIZE.y) + 0.5:
+		printerr("CHECK %s: dock pushed off the bottom (y=%.0f, window %d)"
+			% [name, bottom, WINDOW_SIZE.y])
+
+	# The dock quotes storage, and so does the Market. A stale dock made the two
+	# disagree on screen at the same time, which reads as a broken game rather
+	# than a stale label.
+	var state := Game.campaign.state
+	var expected := "%d/%d" % [state.storage_used(), state.storage_capacity()]
+	var found := false
+	for label in status.find_children("*", "Label", true, false):
+		if label.text == expected:
+			found = true
+			break
+	if not found:
+		printerr("CHECK %s: dock storage is stale, expected %s" % [name, expected])
+
+
+## The hand-written mirror above must still match hq.gd's Tab enum.
+##
+## It did not, once: a tab was inserted in the middle and TAB_CEMETERY kept
+## pointing at Clients, so a screenshot named "cemetery" was of another screen
+## entirely and nothing complained. Reading the real enum off the script costs
+## one call and makes that impossible.
+func _check_tabs_match() -> void:
+	var expected := {
+		"ROSTER": TAB_ROSTER,
+		"CONTRACTS": TAB_CONTRACTS,
+		"RECRUITS": TAB_RECRUITS,
+		"TRAINING": TAB_TRAINING,
+		"INTEL": TAB_INTEL,
+		"BASE": TAB_BASE,
+		"MARKET": TAB_MARKET,
+		"CLIENTS": TAB_CLIENTS,
+		"BONDS": TAB_BONDS,
+		"CEMETERY": TAB_CEMETERY,
+	}
+	var actual: Dictionary = _hq.get_script().get_script_constant_map().get("Tab", {})
+	if actual.is_empty():
+		printerr("CHECK could not read hq.gd's Tab enum")
+		return
+	for key in expected:
+		if not actual.has(key):
+			printerr("CHECK hq.gd has no Tab.%s" % key)
+		elif int(actual[key]) != int(expected[key]):
+			printerr("CHECK Tab.%s is %d in hq.gd, %d here"
+				% [key, int(actual[key]), int(expected[key])])
+	for key in actual:
+		if not expected.has(key):
+			printerr("CHECK hq.gd added Tab.%s and this mirror does not know it" % key)

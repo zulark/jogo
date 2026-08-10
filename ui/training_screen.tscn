@@ -1,0 +1,105 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/training_screen.gd" id="1_training"]
+
+[node name="TrainingScreen" type="VBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 12
+script = ExtResource("1_training")
+
+[node name="Columns" type="HBoxContainer" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 16
+
+[node name="MentorColumn" type="VBoxContainer" parent="Columns"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="MentorHeading" type="Label" parent="Columns/MentorColumn"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.812, 0.616, 0.247, 1)
+theme_override_font_sizes/font_size = 12
+text = "INSTRUCTOR"
+
+[node name="MentorScroll" type="ScrollContainer" parent="Columns/MentorColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="MentorList" type="VBoxContainer" parent="Columns/MentorColumn/MentorScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 5
+
+[node name="TraineeColumn" type="VBoxContainer" parent="Columns"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="TraineeHeading" type="Label" parent="Columns/TraineeColumn"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.812, 0.616, 0.247, 1)
+theme_override_font_sizes/font_size = 12
+text = "TRAINEE"
+
+[node name="TraineeScroll" type="ScrollContainer" parent="Columns/TraineeColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="TraineeList" type="VBoxContainer" parent="Columns/TraineeColumn/TraineeScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 5
+
+[node name="ActiveColumn" type="VBoxContainer" parent="Columns"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="ActiveHeading" type="Label" parent="Columns/ActiveColumn"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.812, 0.616, 0.247, 1)
+theme_override_font_sizes/font_size = 12
+text = "IN PROGRESS"
+
+[node name="ActiveScroll" type="ScrollContainer" parent="Columns/ActiveColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="ActiveList" type="VBoxContainer" parent="Columns/ActiveColumn/ActiveScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 5
+
+[node name="Footer" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Summary" type="Label" parent="Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_colors/font_color = Color(0.659, 0.69, 0.659, 1)
+theme_override_font_sizes/font_size = 13
+text = "Choose an instructor."
+
+[node name="StartButton" type="Button" parent="Footer"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 42)
+layout_mode = 2
+disabled = true
+text = "Start Training"
+
+[connection signal="pressed" from="Footer/StartButton" to="." method="_on_start_pressed"]

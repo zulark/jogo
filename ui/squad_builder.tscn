@@ -1,0 +1,100 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://ui/squad_builder.gd" id="1_builder"]
+[ext_resource type="PackedScene" path="res://ui/mission_briefing.tscn" id="2_briefing"]
+
+[node name="SquadBuilder" type="HBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 14
+script = ExtResource("1_builder")
+
+[node name="Left" type="VBoxContainer" parent="."]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="MissionTitle" type="Label" parent="Left"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.925, 0.937, 0.949, 1)
+theme_override_font_sizes/font_size = 16
+text = "Contract"
+
+[node name="SquadHeading" type="Label" parent="Left"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.408, 0.431, 0.459, 1)
+theme_override_font_sizes/font_size = 12
+text = "SQUAD"
+
+[node name="SquadScroll" type="ScrollContainer" parent="Left"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="SquadList" type="VBoxContainer" parent="Left/SquadScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 5
+
+[node name="AvailableHeading" type="Label" parent="Left"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.408, 0.431, 0.459, 1)
+theme_override_font_sizes/font_size = 12
+text = "AVAILABLE — CLICK TO ADD"
+
+[node name="AvailableScroll" type="ScrollContainer" parent="Left"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="AvailableList" type="VBoxContainer" parent="Left/AvailableScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="Right" type="VBoxContainer" parent="."]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 1.35
+theme_override_constants/separation = 10
+
+[node name="Briefing" parent="Right" instance=ExtResource("2_briefing")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Warning" type="Label" parent="Right"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.878, 0.42, 0.463, 1)
+theme_override_font_sizes/font_size = 13
+text = "warning"
+
+[node name="Actions" type="HBoxContainer" parent="Right"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="BackButton" type="Button" parent="Right/Actions"]
+custom_minimum_size = Vector2(130, 42)
+layout_mode = 2
+text = "Back to Board"
+
+[node name="Filler" type="Control" parent="Right/Actions"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="DeployButton" type="Button" parent="Right/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(170, 42)
+layout_mode = 2
+disabled = true
+text = "Deploy Squad"
+
+[connection signal="pressed" from="Right/Actions/BackButton" to="." method="_on_back_pressed"]

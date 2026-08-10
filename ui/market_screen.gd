@@ -55,12 +55,15 @@ func refresh() -> void:
 		_locked_note.text = locked
 		_locked_note.visible = not locked.is_empty()
 
+	# Grouped by type here, unlike the Stock panel: this column answers "do we
+	# already own one of these" while looking at a price tag, and the answer is a
+	# count. The condition of each individual copy is the Stock screen's job.
 	var seen := {}
-	for id in state.inventory:
-		if seen.has(id):
+	for instance in state.inventory:
+		if seen.has(instance.item_id):
 			continue
-		seen[id] = true
-		_owned_list.add_child(_make_owned_row(id))
+		seen[instance.item_id] = true
+		_owned_list.add_child(_make_owned_row(instance.item_id))
 	if state.inventory.is_empty():
 		_owned_list.add_child(_empty_note("The company owns nothing yet."))
 
@@ -147,25 +150,38 @@ func _make_owned_row(item_id: StringName) -> Control:
 	if item == null:
 		return UiStyle.text("Unknown item", UiStyle.SIZE_SMALL, UiStyle.TEXT_3)
 
-	var total := 0
-	for id in state.inventory:
-		if id == item_id:
-			total += 1
+	var total := state.count_of(item_id)
 	var free := state.unequipped_count(item_id)
+
+	# Sells the worst loose copy first. Keeping the good one is what anybody
+	# would do, and making the player pick which carbine to sell from a screen
+	# about buying is a decision in the wrong place — the Stock screen is where
+	# a specific copy gets chosen.
+	var worst: ItemInstance = null
+	for instance in state.spare_instances():
+		if instance.item_id != item_id:
+			continue
+		if worst == null or instance.condition < worst.condition:
+			worst = instance
+
+	var detail := "%d owned  ·  %d in storage" % [total, free]
+	if worst != null:
+		detail += "  ·  worst %d%%" % int(round(worst.condition))
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	row.add_child(UiStyle.identity(
-		item.display_name,
-		"%d owned  ·  %d in storage" % [total, free]))
+	row.add_child(UiStyle.identity(item.display_name, detail))
 
-	var sell := UiStyle.confirm_button("Sell", "Sure?", func():
-		if Game.campaign.sell_item(item_id):
-			company_changed.emit()
-			refresh()
-	, 74)
-	sell.custom_minimum_size = Vector2(74, 32)
-	sell.disabled = free <= 0
+	var sell := UiStyle.confirm_button(
+		"Sell %d" % Game.campaign.resale_value(worst) if worst != null else "Sell",
+		"Sure?",
+		func():
+			if Game.campaign.sell_item(worst):
+				company_changed.emit()
+				refresh()
+	, 90)
+	sell.custom_minimum_size = Vector2(90, 32)
+	sell.disabled = worst == null
 	row.add_child(sell)
 
 	return row

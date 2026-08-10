@@ -36,10 +36,24 @@ extends Resource
 
 @export var preferred_role: GameEnums.Role = GameEnums.Role.ASSAULT
 
-## ItemLibrary ids. One weapon, one set of gear — a loadout should be a decision,
-## not an inventory chore. Empty means they go out with standard issue.
-@export var weapon_id: StringName = &""
-@export var gear_id: StringName = &""
+## The specific copies they are carrying. One weapon, one set of gear — a
+## loadout should be a decision, not an inventory chore. Null means they go out
+## with standard issue.
+##
+## These are ItemInstance references rather than ids because two operators must
+## never be able to hold the same rifle, and because the rifle has a condition
+## that is its own rather than its type's. Not @export'ed: the link is rebuilt
+## against the company's inventory on load, the same way a deployment's squad is
+## rebuilt against the roster.
+var weapon: ItemInstance = null
+var gear: ItemInstance = null
+
+## Only ever set by from_dict, only ever read by GameState, which owns the
+## inventory these have to be re-linked against. See GameState.from_dict.
+var pending_weapon_uid: StringName = &""
+var pending_gear_uid: StringName = &""
+var pending_weapon_id: StringName = &""
+var pending_gear_id: StringName = &""
 
 ## Weekly cost in diamonds, charged on the week boundary.
 @export var salary: int = 100
@@ -128,29 +142,58 @@ func get_skill(skill: int, mission_type: int = -1) -> int:
 	return clampi(value, 0, 100 + Balance.MAX_SKILL_STARS * Balance.STAR_BONUS)
 
 
-## What they are carrying, skipping empty slots.
-func equipment() -> Array[ItemData]:
-	var carried: Array[ItemData] = []
-	var weapon := ItemLibrary.get_item(weapon_id)
+## What they are carrying, skipping empty slots. These are copies rather than
+## types, so everything read off them is already scaled by how worn they are.
+func equipment() -> Array[ItemInstance]:
+	var carried: Array[ItemInstance] = []
 	if weapon != null:
 		carried.append(weapon)
-	var gear := ItemLibrary.get_item(gear_id)
 	if gear != null:
 		carried.append(gear)
 	return carried
 
 
+func slot_instance(slot: int) -> ItemInstance:
+	return weapon if slot == ItemData.Slot.WEAPON else gear
+
+
+func set_slot_instance(slot: int, instance: ItemInstance) -> void:
+	if slot == ItemData.Slot.WEAPON:
+		weapon = instance
+	else:
+		gear = instance
+
+
+## The *type* in a slot, for the handful of places that care what kind of thing
+## somebody is holding rather than which one — the kill feed, mostly.
+func weapon_item_id() -> StringName:
+	return weapon.item_id if weapon != null else &""
+
+
+func gear_item_id() -> StringName:
+	return gear.item_id if gear != null else &""
+
+
+## Kit they are carrying that is past being any use. The roster flags it and the
+## workshop is where it gets answered.
+func has_unserviceable_kit() -> bool:
+	for item in equipment():
+		if not item.is_serviceable():
+			return true
+	return false
+
+
 func equipment_score() -> float:
 	var total := 0.0
 	for item in equipment():
-		total += item.score_modifier
+		total += item.score_modifier()
 	return total
 
 
 func equipment_danger() -> float:
 	var total := 0.0
 	for item in equipment():
-		total += item.danger_modifier
+		total += item.danger_modifier()
 	return total
 
 
@@ -326,8 +369,8 @@ func to_dict() -> Dictionary:
 		"xp": xp,
 		"career_track": int(career_track),
 		"preferred_role": int(preferred_role),
-		"weapon_id": String(weapon_id),
-		"gear_id": String(gear_id),
+		"weapon_uid": String(weapon.uid) if weapon != null else "",
+		"gear_uid": String(gear.uid) if gear != null else "",
 		"salary": salary,
 		"status": int(status),
 		"fatigue": fatigue,
@@ -371,8 +414,13 @@ static func from_dict(data: Dictionary) -> OperatorData:
 	op.xp = int(data.get("xp", 0))
 	op.career_track = int(data.get("career_track", 0))
 	op.preferred_role = int(data.get("preferred_role", 0))
-	op.weapon_id = StringName(data.get("weapon_id", ""))
-	op.gear_id = StringName(data.get("gear_id", ""))
+	# Held rather than resolved: the inventory these point into does not exist
+	# yet at this point in the load. `weapon_id` is the pre-condition save
+	# format, kept so an existing company does not lose its kit on upgrade.
+	op.pending_weapon_uid = StringName(str(data.get("weapon_uid", "")))
+	op.pending_gear_uid = StringName(str(data.get("gear_uid", "")))
+	op.pending_weapon_id = StringName(str(data.get("weapon_id", "")))
+	op.pending_gear_id = StringName(str(data.get("gear_id", "")))
 	op.salary = int(data.get("salary", 0))
 	op.status = int(data.get("status", 0))
 	op.fatigue = int(data.get("fatigue", 0))

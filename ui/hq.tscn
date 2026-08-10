@@ -1,7 +1,8 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://ui/hq.gd" id="1_hq"]
 [ext_resource type="PackedScene" path="res://ui/after_action.tscn" id="2_after"]
+[ext_resource type="PackedScene" path="res://ui/incident_modal.tscn" id="3_incident"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_header"]
 content_margin_left = 20.0
@@ -164,6 +165,13 @@ layout_mode = 2
 toggle_mode = true
 text = "Market"
 
+[node name="WorkshopTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Workshop"
+
 [node name="ClientsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(96, 34)
@@ -251,6 +259,11 @@ layout_mode = 2
 size_flags_vertical = 3
 
 [node name="AfterAction" parent="." instance=ExtResource("2_after")]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+
+[node name="IncidentModal" parent="." instance=ExtResource("3_incident")]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1

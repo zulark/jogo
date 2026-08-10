@@ -129,6 +129,9 @@ enum ModifierSource {
 	MISSION_DIFFICULTY,
 	CONDITION,
 	BOND,
+	## A decision the player took while the squad was out. Appended rather than
+	## inserted so the existing values keep their meaning.
+	FIELD,
 }
 
 

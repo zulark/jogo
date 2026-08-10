@@ -33,8 +33,11 @@ static func catalogue() -> Array:
 			"title": "Kit went missing from storage",
 			"polarity": Polarity.BAD,
 			"weight": 2,
+			# Somebody has to WANT to steal it. "You own something" is not a
+			# reason, and losing a pistol for no reason is the single most
+			# frustrating thing an event system can do.
 			"requires": func(state: GameState) -> bool:
-				return state.inventory.size() > 0,
+				return state.lowest_morale() < 40 and _spare_item(state) != null,
 		},
 		{
 			"id": &"brawl",
@@ -49,16 +52,24 @@ static func catalogue() -> Array:
 			"title": "Something is going round",
 			"polarity": Polarity.BAD,
 			"weight": 2,
+			# Worn-out people in a base with no doctor. Both halves are the
+			# player's doing: rotation, and what they chose to build.
 			"requires": func(state: GameState) -> bool:
-				return state.living_roster_size() >= 3,
+				return (
+					state.living_roster_size() >= 3
+					and (state.average_fatigue() >= 35
+						or state.facility_level(FacilityLibrary.INFIRMARY) == 0)
+				),
 		},
 		{
 			"id": &"client_dispute",
 			"title": "A client disputes an invoice",
 			"polarity": Polarity.BAD,
 			"weight": 2,
+			# A client you have already disappointed. Somebody who thinks well
+			# of the company does not go looking through the paperwork.
 			"requires": func(state: GameState) -> bool:
-				return not state.faction_standing.is_empty(),
+				return _disgruntled_client(state) != &"",
 		},
 
 		{
@@ -67,23 +78,30 @@ static func catalogue() -> Array:
 			"polarity": Polarity.BAD,
 			"weight": 2,
 			"requires": func(state: GameState) -> bool:
-				return state.built_facility_count() > 0 and state.diamonds > 400,
+				return (
+					state.built_facility_count() >= 3
+					and Economy.weeks_of_runway(state) <= 1
+				),
 		},
 		{
 			"id": &"supply_shortage",
 			"title": "Nobody is selling",
 			"polarity": Polarity.BAD,
 			"weight": 2,
+			# Suppliers avoid companies nobody has heard of. A well-regarded
+			# company gets served.
 			"requires": func(state: GameState) -> bool:
-				return state.reputation < 90,
+				return state.reputation < 35,
 		},
 		{
 			"id": &"gear_failure",
 			"title": "Kit failed inspection",
 			"polarity": Polarity.BAD,
 			"weight": 2,
+			# Kit wears out from being USED. A rack of spares that never left
+			# the building does not fail an inspection.
 			"requires": func(state: GameState) -> bool:
-				return state.inventory.size() >= 2,
+				return state.deployed_last_week > 0 and _spare_item(state) != null,
 		},
 
 		# --- Good -----------------------------------------------------------
@@ -100,8 +118,9 @@ static func catalogue() -> Array:
 			"title": "A week with nothing in it",
 			"polarity": Polarity.GOOD,
 			"weight": 2,
+			# It cannot have been a quiet week if a squad was out in it.
 			"requires": func(state: GameState) -> bool:
-				return true,
+				return state.deployed_last_week == 0,
 		},
 		{
 			"id": &"veteran_returns",
@@ -124,24 +143,28 @@ static func catalogue() -> Array:
 			"title": "Salvage sold on",
 			"polarity": Polarity.GOOD,
 			"weight": 3,
-			"requires": func(_state: GameState) -> bool:
-				return true,
+			# Salvage comes off contracts. Money cannot arrive from work nobody
+			# did.
+			"requires": func(state: GameState) -> bool:
+				return state.deployed_last_week > 0,
 		},
 		{
 			"id": &"cache",
 			"title": "A cache came back with the last squad",
 			"polarity": Polarity.GOOD,
 			"weight": 2,
+			# "Came back with the last squad" requires a last squad.
 			"requires": func(state: GameState) -> bool:
-				return state.has_storage_room(),
+				return state.has_storage_room() and state.deployed_last_week > 0,
 		},
 		{
 			"id": &"commendation",
 			"title": "Word got around",
 			"polarity": Polarity.GOOD,
 			"weight": 2,
+			# Word gets around about work that was done.
 			"requires": func(state: GameState) -> bool:
-				return state.reputation < 95,
+				return state.reputation < 95 and state.deployed_last_week > 0,
 		},
 		{
 			"id": &"shore_leave",
@@ -152,6 +175,29 @@ static func catalogue() -> Array:
 				return _average_morale(state) < 80,
 		},
 	]
+
+
+## An item nobody is carrying. Every event that removes kit goes through this:
+## taking a rifle out of an operator's hands between contracts is not a
+## consequence the player can see coming.
+static func _spare_item(state: GameState) -> ItemInstance:
+	for instance in state.inventory:
+		if state.is_spare(instance):
+			return instance
+	return null
+
+
+## The client with the least patience left, or empty if every client the company
+## deals with is content — in which case nobody disputes anything.
+static func _disgruntled_client(state: GameState) -> StringName:
+	var worst: StringName = &""
+	var lowest := 40
+	for id in state.faction_standing:
+		var standing: int = int(state.faction_standing[id])
+		if standing < lowest:
+			lowest = standing
+			worst = id
+	return worst
 
 
 static func _average_morale(state: GameState) -> int:
@@ -223,14 +269,16 @@ static func apply(
 			return "Someone sold what they knew about the base. %d diamonds gone." % loss
 
 		&"theft":
-			var item_id: StringName = state.inventory[rng.randi() % state.inventory.size()]
-			var item := ItemLibrary.get_item(item_id)
-			# Only take something nobody is carrying — kit in the field is safe.
-			if state.unequipped_count(item_id) <= 0:
+			# Pick from what is actually loose, rather than picking at random and
+			# discovering it was carried. Naming the motive matters as much as
+			# the loss: kit vanishing "for no reason" is infuriating, kit
+			# vanishing because the barracks is miserable is a consequence.
+			var stolen := _spare_item(state)
+			if stolen == null:
 				return "A break-in at storage, but everything worth taking was in the field."
-			state.inventory.erase(item_id)
-			return "%s went missing from storage overnight." % (
-				item.display_name if item != null else "Equipment")
+			state.inventory.erase(stolen)
+			return "%s went missing overnight. Nobody saw anything, and morale here has been bad for weeks." % (
+				stolen.display_name())
 
 		&"brawl":
 			var rivals := _find_rivals(state)
@@ -247,13 +295,18 @@ static func apply(
 			for op in state.roster:
 				if op.is_deployable():
 					op.fatigue = mini(100, op.fatigue + rng.randi_range(12, 25))
-			return "Something is going round the barracks. Everyone at base is worn down."
+			if state.facility_level(FacilityLibrary.INFIRMARY) == 0:
+				return "Something is going round, and there is no infirmary to keep it out."
+			return "Something is going round the barracks. Tired people catch it first."
 
 		&"client_dispute":
-			var ids: Array = state.faction_standing.keys()
-			var faction_id: StringName = ids[rng.randi() % ids.size()]
+			# The client who already thinks least of the company is the one who
+			# goes through the paperwork looking for something.
+			var faction_id := _disgruntled_client(state)
+			if faction_id == &"":
+				return "An invoice was queried and settled the same day."
 			state.adjust_standing(faction_id, -10)
-			return "%s is disputing an invoice. Your standing with them has suffered." % (
+			return "%s went back through the last invoice line by line. They were not looking for nothing." % (
 				FactionLibrary.faction_name(faction_id))
 
 		&"prodigy":
@@ -272,12 +325,17 @@ static func apply(
 			var affordable: Array[ItemData] = []
 			for id in ItemLibrary.all():
 				var item: ItemData = ItemLibrary.all()[id]
-				if item.source != ItemData.Source.BLACKMARKET and item.tier <= 2:
+				if item.source == ItemData.Source.BLACKMARKET or item.is_craftable():
+					continue
+				if item.tier <= 2:
 					affordable.append(item)
 			if affordable.is_empty() or not state.has_storage_room():
 				return "The squad brought something back, but there was nowhere to put it."
 			var found: ItemData = affordable[rng.randi() % affordable.size()]
-			state.inventory.append(found.id)
+			# Found kit, so found-kit condition: it turns up used, like the loot
+			# roll's does, rather than as a free item off the shelf.
+			state.inventory.append(ItemInstance.create(found.id, rng.randf_range(
+				Balance.LOOT_CONDITION_MIN, Balance.LOOT_CONDITION_MAX)))
 			return "The last squad came back with a %s nobody is claiming." % found.display_name
 
 		&"commendation":
@@ -288,20 +346,24 @@ static func apply(
 		&"generator_failure":
 			var repair: int = mini(state.diamonds, rng.randi_range(400, 1400))
 			state.diamonds -= repair
-			return "The base generator burned out. %d diamonds to put it right." % repair
+			return "The generator burned out. It has been running on deferred maintenance because there was no money to service it. %d diamonds to put it right." % repair
 
 		&"supply_shortage":
 			state.reputation = maxi(0, state.reputation - rng.randi_range(2, 5))
 			return "Suppliers are stalling on the company's orders. Word gets around."
 
 		&"gear_failure":
-			var doomed: StringName = state.inventory[rng.randi() % state.inventory.size()]
-			if state.unequipped_count(doomed) <= 0:
+			var doomed := _spare_item(state)
+			if doomed == null:
 				return "An inspection flagged half the kit, but it is all in the field."
+			# Written off rather than destroyed: the parts go into the pile the
+			# next build comes out of, which is what stops this reading as pure
+			# subtraction. Losing the item is still the consequence.
+			var parts: int = Workshop.scrap_value(doomed)
 			state.inventory.erase(doomed)
-			var broken := ItemLibrary.get_item(doomed)
-			return "%s failed inspection and was written off." % (
-				broken.display_name if broken != null else "Equipment")
+			state.salvage += parts
+			return "%s came back from the last contract beyond repair. It was stripped for parts — %d of them." % [
+				doomed.display_name(), parts]
 
 		&"blackmarket_discount":
 			var windfall: int = rng.randi_range(900, 2600)

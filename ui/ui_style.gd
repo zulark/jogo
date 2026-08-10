@@ -349,6 +349,39 @@ static func fatigue_meter(op: OperatorData, width: int = 70) -> Control:
 	return box
 
 
+## Kit condition reads forwards: a full bar is good, and it goes rust at the
+## point the item stops working rather than at some softer warning line, because
+## unserviceable is a state with consequences and "a bit worn" is not.
+static func condition_color(instance: ItemInstance) -> Color:
+	if instance == null:
+		return TEXT_3
+	if not instance.is_serviceable():
+		return RUST
+	if instance.condition < 45.0:
+		return OCHRE
+	return MINT
+
+
+## The same block the fatigue meter is, for the other number that decides what a
+## squad is worth. Clipped, so a declared width is a promise — see v0.8.
+static func condition_meter(instance: ItemInstance, width: int = 88) -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 1)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.custom_minimum_size.x = width
+
+	var color := condition_color(instance)
+	var caption := text(
+		instance.condition_text() if width >= 128 else ("%d%%" % int(round(instance.condition))),
+		SIZE_CAPTION,
+		color)
+	caption.add_theme_font_override("font", display())
+	caption.clip_text = true
+	box.add_child(caption)
+	box.add_child(meter_bar(int(round(instance.condition)), color, width))
+	return box
+
+
 ## "Combat 74 · Stealth 61 · Endurance 55" — what they are actually good at,
 ## short enough for a list row.
 static func skill_summary(op: OperatorData, count: int = 3, size: int = SIZE_SMALL) -> Label:

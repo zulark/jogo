@@ -23,31 +23,42 @@ static func write(report: MissionReport, rng: RandomNumberGenerator) -> Array[St
 	if region != null and region.hazard != GameEnums.Hazard.NONE:
 		lines.append(_hazard_line(region.hazard, report))
 
-	# 3. Contact, sized by how much shooting actually happened.
-	var total_kills := 0
-	for op in report.kills:
-		total_kills += int(report.kills[op])
+	# 2b. What the company told them to do while they were out there. These are
+	# the player's own decisions, so they go in ahead of the shooting — the feed
+	# should read as the consequence of a call somebody made, not as a log.
+	lines.append_array(report.field_lines)
 
-	if total_kills == 0:
-		lines.append("Nobody fired a shot.")
-	elif total_kills <= 2:
-		lines.append("There was a brief exchange, and %s went down on their side." % (
-			TextUtil.spelled(total_kills, "man", "men")))
-	elif total_kills <= 8:
-		lines.append("It turned into a proper fight, with %s accounted for." % (
-			TextUtil.spelled(total_kills, "of theirs", "of theirs")))
+	# 3. Contact, sized by how much shooting actually happened. A contract the
+	# company called off is described by the withdrawal instead — nobody wants a
+	# blow-by-blow of a fight that was broken off on purpose — but what it cost
+	# on the way out, below, still gets said.
+	if report.withdrew:
+		lines.append("They broke contact and came out with the job unfinished.")
 	else:
-		lines.append("It became a battle. %s of theirs did not walk away." % (
-			TextUtil.number_capitalised(total_kills)))
+		var total_kills := 0
+		for op in report.kills:
+			total_kills += int(report.kills[op])
 
-	# 4. Who carried it. The best shot gets named, because a feed with names in
-	# it is one the player remembers.
-	var top: OperatorData = null
-	for op in report.kills:
-		if top == null or int(report.kills[op]) > int(report.kills[top]):
-			top = op
-	if top != null and int(report.kills[top]) >= 2:
-		lines.append("%s did most of it." % top.display_label())
+		if total_kills == 0:
+			lines.append("Nobody fired a shot.")
+		elif total_kills <= 2:
+			lines.append("There was a brief exchange, and %s went down on their side." % (
+				TextUtil.spelled(total_kills, "man", "men")))
+		elif total_kills <= 8:
+			lines.append("It turned into a proper fight, with %s accounted for." % (
+				TextUtil.spelled(total_kills, "of theirs", "of theirs")))
+		else:
+			lines.append("It became a battle. %s of theirs did not walk away." % (
+				TextUtil.number_capitalised(total_kills)))
+
+		# 4. Who carried it. The best shot gets named, because a feed with names
+		# in it is one the player remembers.
+		var top: OperatorData = null
+		for op in report.kills:
+			if top == null or int(report.kills[op]) > int(report.kills[top]):
+				top = op
+		if top != null and int(report.kills[top]) >= 2:
+			lines.append("%s did most of it." % top.display_label())
 
 	# 5. Casualties, in the order that matters.
 	var dead: Array = report.casualties()
@@ -71,8 +82,13 @@ static func write(report: MissionReport, rng: RandomNumberGenerator) -> Array[St
 	if not report.trophy_line.is_empty():
 		lines.append(report.trophy_line)
 
-	# 8. How it closed.
-	if report.success:
+	# 8. How it closed. A withdrawal already has its ending — the company chose
+	# it — so it does not get one of the failure lines, which are all about being
+	# beaten.
+	if report.withdrew:
+		lines.append("%s was told the contract would not be completed." % (
+			mission.client_name()))
+	elif report.success:
 		var wins := [
 			"The client got what they paid for.",
 			"Contract closed. The client did not ask for details.",

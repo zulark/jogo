@@ -21,6 +21,9 @@ signal operator_promoted(op: OperatorData)
 signal training_started(session: TrainingSession)
 signal training_finished(session: TrainingSession, trainee_log: Array, mentor_log: Array)
 signal facility_upgraded(id: StringName, level: int)
+## Something has landed on the desk and wants an answer before the day is over.
+signal incident_raised(incident: Dictionary)
+
 signal intel_assigned(op: IntelOp)
 signal intel_finished(op: IntelOp, result: Dictionary)
 signal detachment_assigned(detachment: Detachment)
@@ -29,6 +32,8 @@ signal scouting_started(mission: MissionData)
 signal scouting_finished(mission: MissionData)
 signal week_events(lines: Array)
 signal item_bought(item: ItemData)
+signal workshop_started(job: WorkshopJob)
+signal workshop_finished(job: WorkshopJob)
 signal board_refreshed()
 signal bankrupt()
 
@@ -38,6 +43,12 @@ var rng := RandomNumberGenerator.new()
 ## News raised mid-day (a call-up expiring, say) that the UI should show at the
 ## next natural break rather than interrupting the day.
 var _pending_news: Array = []
+
+## Day number of the last incident, so they do not land on consecutive days.
+var _last_incident_day := -99
+
+## The last incident's id, so the same one never lands twice running.
+var _last_incident_id: StringName = &""
 
 
 func _init(p_state: GameState = null, p_seed: int = -1) -> void:
@@ -235,6 +246,26 @@ func assign_detachment(job: SideJobData, op: OperatorData) -> Detachment:
 	state.detachments.append(detachment)
 	detachment_assigned.emit(detachment)
 	return detachment
+
+
+## One decision on an ordinary day, or nothing.
+##
+## Deliberately fired BEFORE day_ended and the week close, so an incident that
+## puts a contract on the board or takes someone off the roster is reflected in
+## the numbers the player is about to look at rather than a day behind them.
+func _roll_incident() -> void:
+	if state.day - _last_incident_day < Balance.INCIDENT_COOLDOWN:
+		return
+	if rng.randf() >= Balance.INCIDENT_CHANCE:
+		return
+
+	var incident := IncidentLibrary.roll(self, rng, _last_incident_id)
+	if incident.is_empty():
+		return
+
+	_last_incident_id = StringName(str(incident.get("id", "")))
+	_last_incident_day = state.day
+	incident_raised.emit(incident)
 
 
 # --- Intel teams -------------------------------------------------------------
@@ -491,7 +522,7 @@ func _roll_production() -> Array:
 			continue
 
 		var made: ItemData = candidates[rng.randi() % candidates.size()]
-		state.inventory.append(made.id)
+		state.inventory.append(ItemInstance.create(made.id))
 		news.append({
 			"title": "%s surplus" % FacilityLibrary.get_facility(facility_id).display_name,
 			"line": "Turned out a spare %s this week. It will sell." % made.display_name,
@@ -543,23 +574,40 @@ func buy_item(item: ItemData) -> bool:
 		return false
 
 	state.diamonds -= item.price
-	state.inventory.append(item.id)
+	state.inventory.append(ItemInstance.create(item.id))
 	item_bought.emit(item)
 	return true
 
 
 ## Selling back recovers part of the price — kit the company no longer needs is
-## a source of cash when the week has gone badly.
-func sell_item(item_id: StringName) -> bool:
-	if state.unequipped_count(item_id) <= 0:
+## a source of cash when the week has gone badly. What it fetches depends on the
+## state it is in: nobody pays full second-hand money for a worn-out carrier.
+func sell_item(instance: ItemInstance) -> bool:
+	if instance == null or not state.inventory.has(instance):
 		return false
-	var item := ItemLibrary.get_item(item_id)
-	if item == null:
+	if not state.is_spare(instance):
 		return false
 
-	state.inventory.erase(item_id)
-	state.diamonds += int(round(float(item.price) * Balance.RESALE_RATIO))
+	state.inventory.erase(instance)
+	state.diamonds += resale_value(instance)
 	return true
+
+
+func resale_value(instance: ItemInstance) -> int:
+	if instance == null:
+		return 0
+	var quality: float = Balance.SCRAP_CONDITION_FLOOR + (
+		1.0 - Balance.SCRAP_CONDITION_FLOOR) * (instance.condition / Balance.CONDITION_NEW)
+	return int(round(float(instance.price()) * Balance.RESALE_RATIO * quality))
+
+
+## The oldest loose copy of a type, for the handful of callers that still think
+## in item ids — events taking kit, and the harness.
+func spare_of(item_id: StringName) -> ItemInstance:
+	for instance in state.inventory:
+		if instance.item_id == item_id and state.is_spare(instance):
+			return instance
+	return null
 
 
 func _is_in_stock(item: ItemData) -> bool:
@@ -568,24 +616,165 @@ func _is_in_stock(item: ItemData) -> bool:
 			return state.reputation >= item.reputation_required
 		ItemData.Source.ARMOURY:
 			return item.tier <= state.facility_level(FacilityLibrary.ARMOURY)
-		_:
+		ItemData.Source.QUARTERMASTER:
 			return item.tier <= state.facility_level(FacilityLibrary.QUARTERMASTER)
-
-
-## Hands an item to an operator, taking it off whoever had it.
-func equip(op: OperatorData, item_id: StringName, slot: int) -> bool:
-	if item_id != &"":
-		var item := ItemLibrary.get_item(item_id)
-		if item == null or item.slot != slot:
-			return false
-		if state.unequipped_count(item_id) <= 0:
+		_:
+			# Blueprint kit is never on a shelf. The only way to hold one is to
+			# have found the plans and built it.
 			return false
 
-	if slot == ItemData.Slot.WEAPON:
-		op.weapon_id = item_id
-	else:
-		op.gear_id = item_id
+
+## Hands a specific copy to an operator, taking it off whoever had it.
+##
+## A copy rather than a type, because "issue them a carbine" is not a complete
+## instruction once the company owns a new one and a worn one.
+func equip(op: OperatorData, instance: ItemInstance, slot: int) -> bool:
+	if instance != null:
+		if instance.slot() != slot or not state.inventory.has(instance):
+			return false
+		if not state.is_spare(instance):
+			return false
+		# Kit that gives nothing and still costs them stealth is not a loadout,
+		# it is a mistake waiting to be made. The workshop is the answer.
+		if not instance.is_serviceable():
+			return false
+
+	op.set_slot_instance(slot, instance)
 	return true
+
+
+## Convenience for anything that only knows the type: takes the best copy that
+## is free. The harness and the after-action screen both work this way.
+func equip_by_id(op: OperatorData, item_id: StringName, slot: int) -> bool:
+	if item_id == &"":
+		return equip(op, null, slot)
+	var best: ItemInstance = null
+	for instance in state.available_items(slot):
+		if instance.item_id == item_id and (best == null or instance.condition > best.condition):
+			best = instance
+	return equip(op, best, slot)
+
+
+# --- The workshop ------------------------------------------------------------
+#
+# The last system in the design doc: the Armoury and Quartermaster repair kit
+# and build it from blueprints found as loot. Both cost a bench, and a bench is
+# the scarce thing — whatever is being worked on is not on a contract.
+
+## Put a copy on a bench. Money is charged now, days are charged from here on.
+func start_repair(instance: ItemInstance) -> bool:
+	if not Workshop.can_repair(state, instance):
+		return false
+
+	var facility_id := Workshop.facility_for_instance(instance)
+	var cost := Workshop.repair_cost(instance)
+	var days := Workshop.repair_days(state, instance)
+	var job := WorkshopJob.repair(instance, facility_id, days, cost)
+
+	# Taken off whoever was carrying it, and noted so it goes straight back to
+	# them. The cost of a repair is that they are without it for a few days, not
+	# that the player has to remember to reissue it afterwards.
+	var holder := state.holder_of(instance)
+	if holder != null:
+		job.borrowed_from = holder.id
+		holder.set_slot_instance(instance.slot(), null)
+
+	state.diamonds -= cost
+	state.workshop.append(job)
+	workshop_started.emit(job)
+	return true
+
+
+## Strip a copy for parts. It is gone — this is the end of that rifle — and the
+## parts are what the next one gets built out of.
+func scrap_item(instance: ItemInstance) -> int:
+	if not Workshop.can_scrap(state, instance):
+		return 0
+	if not state.inventory.has(instance):
+		return 0
+
+	var parts := Workshop.scrap_value(instance)
+	state.inventory.erase(instance)
+	state.salvage += parts
+	return parts
+
+
+## Book a build against a blueprint the company holds.
+func start_craft(item_id: StringName) -> bool:
+	var item := ItemLibrary.get_item(item_id)
+	if not Workshop.can_craft(state, item):
+		return false
+
+	state.salvage -= item.craft_salvage
+	state.diamonds -= item.craft_price
+	var days := Workshop.craft_days(state, item)
+	state.workshop.append(
+		WorkshopJob.craft(item.id, item.craft_facility, days, item.craft_price, item.craft_salvage))
+	workshop_started.emit(state.workshop[state.workshop.size() - 1])
+	return true
+
+
+## Plans, once seen, are known for good.
+func learn_blueprint(item_id: StringName) -> bool:
+	var item := ItemLibrary.get_item(item_id)
+	if item == null or not item.is_craftable() or state.knows_blueprint(item_id):
+		return false
+	state.blueprints.append(item_id)
+	return true
+
+
+func _tick_workshop() -> void:
+	for job: WorkshopJob in state.workshop.duplicate():
+		job.days_remaining -= 1
+		if job.days_remaining > 0:
+			continue
+
+		state.workshop.erase(job)
+
+		if job.kind == WorkshopJob.Kind.REPAIR:
+			# Back to this copy's ceiling, and the ceiling itself drops. A
+			# rebuilt rifle is never a new one, which is what stops repair being
+			# an infinite loop and gives crafting something to be for.
+			job.instance.repair()
+
+			# Straight back to whoever it came off, if they are still here and
+			# their hands are still empty. If they filled the slot meanwhile,
+			# that was a decision and it stands — the item goes on the rack.
+			var owner := state.find_operator(job.borrowed_from)
+			var returned := ""
+			if owner != null and owner.slot_instance(job.instance.slot()) == null:
+				owner.set_slot_instance(job.instance.slot(), job.instance)
+				returned = " Back with %s." % owner.display_label()
+
+			_pending_news.append({
+				"title": "Back in service",
+				"line": "The %s came off the bench at %d%%.%s" % [
+					job.display_name().to_lower(), int(round(job.instance.condition)), returned],
+				"good": true,
+			})
+		else:
+			# Storage can have filled while it was being built. The parts and the
+			# money are already spent, so the item waits rather than evaporating:
+			# it goes in as soon as there is room, and until then the news says so.
+			if not state.has_storage_room():
+				state.workshop.append(job)
+				job.days_remaining = 1
+				_pending_news.append({
+					"title": "Nowhere to put it",
+					"line": "The %s is finished and storage is full. It stays on the bench." % (
+						job.display_name().to_lower()),
+					"good": false,
+				})
+				continue
+			state.inventory.append(ItemInstance.create(job.item_id))
+			_pending_news.append({
+				"title": "Built in-house",
+				"line": "The %s came off the bench. Nobody sells these." % (
+					job.display_name().to_lower()),
+				"good": true,
+			})
+
+		workshop_finished.emit(job)
 
 
 ## The player's "end turn". Everything that costs days moves one day closer.
@@ -599,9 +788,11 @@ func end_day() -> void:
 	_tick_training()
 	_tick_recovery()
 	_tick_scouting()
+	_tick_workshop()
 	_tick_board()
 	_tick_side_job_board()
 
+	_roll_incident()
 	day_ended.emit(state.day)
 
 	if state.day_of_week() == 1 and state.day > 1:
@@ -620,10 +811,48 @@ func _tick_deployments() -> void:
 		deployment.days_remaining -= 1
 		if deployment.days_remaining <= 0:
 			_resolve(deployment)
+			continue
+		_roll_field_event(deployment)
 
 
-func _resolve(deployment: Deployment) -> void:
-	var report := MissionResolver.roll(deployment.report, rng)
+## The squad calls in with something the briefing did not cover.
+##
+## Only while they are still out: a radio call and the debrief on the same day
+## would arrive in the wrong order, and a decision with no days left to run is
+## not a decision. One per contract — see Balance.FIELD_EVENTS_PER_DEPLOYMENT.
+func _roll_field_event(deployment: Deployment) -> void:
+	if deployment.fired_events.size() >= Balance.FIELD_EVENTS_PER_DEPLOYMENT:
+		return
+	if rng.randf() >= Balance.FIELD_EVENT_CHANCE:
+		return
+
+	var event := FieldEventLibrary.roll(self, deployment, rng)
+	if event.is_empty():
+		return
+
+	deployment.fired_events.append(StringName(str(event.get("id", ""))))
+
+	# The desk keeps quiet on a day the field called. Two modals in a row over
+	# one day's end is the sort of thing that makes a player stop reading them,
+	# and of the two the squad in the country is the one that matters.
+	_last_incident_day = state.day
+	incident_raised.emit(event)
+
+
+## The player pulls the plug on a contract that is already running.
+##
+## A failure, and priced as one — part fee, reputation, the client told why —
+## but not the same failure as being beaten: breaking contact deliberately is
+## far less likely to cost somebody their life than losing does.
+func abort_deployment(deployment: Deployment) -> bool:
+	if not state.deployments.has(deployment):
+		return false
+	_resolve(deployment, true)
+	return true
+
+
+func _resolve(deployment: Deployment, withdrawal: bool = false) -> void:
+	var report := MissionResolver.roll(deployment.report, rng, withdrawal)
 	state.deployments.erase(deployment)
 	# Reputation moves the fee, through the same helper the board and briefing
 	# quote from, so the payout matches what was advertised.
@@ -687,8 +916,12 @@ func _resolve(deployment: Deployment) -> void:
 	for lost in dead:
 		Bonds.detach(lost, state.roster)
 
+	_wear_kit(deployment, report, dead)
 	_award_saves(report)
 	_award_loot(report)
+	_award_salvage(report)
+	_award_blueprint(report)
+	_land_carried_kit(deployment, report)
 	_award_trophy(report)
 	_award_medals(report)
 	report.story = MissionStory.write(report, rng)
@@ -758,6 +991,74 @@ func _award_kill_morale(report: MissionReport) -> void:
 		op.morale = mini(100, op.morale + gain)
 
 
+## What the contract did to the kit that went on it.
+##
+## Every term traces to something the player chose — how long the job was, how
+## dangerous, and whether it came off — which is what keeps wear a consequence
+## rather than a tax. Kit signed back in off somebody who did not come home is
+## recovered rather than lost: a rifle outliving the person who earned its
+## reputation is the point, and burying an operator is expensive enough already.
+func _wear_kit(deployment: Deployment, report: MissionReport, dead: Array) -> void:
+	var base := Workshop.wear_for(report.mission, not report.success)
+
+	for op in deployment.squad.members():
+		var killed: bool = dead.has(op)
+		for item in op.equipment():
+			var was_serviceable: bool = item.is_serviceable()
+			item.contracts += 1
+			item.wear(base + (Balance.WEAR_ON_DEATH if killed else 0.0))
+			if was_serviceable and not item.is_serviceable():
+				report.kit_notes.append(
+					"%s is unserviceable. It needs the workshop before anyone carries it again."
+					% item.display_name())
+
+		if not killed:
+			continue
+
+		# The company takes its kit back. Clearing the slots rather than leaving
+		# the headstone holding a rifle keeps one rule true everywhere: exactly
+		# one living operator can be carrying any given copy.
+		for item in op.equipment():
+			report.kit_notes.append("%s was recovered off %s, in the state you would expect." % [
+				item.display_name(), op.display_label()])
+		op.weapon = null
+		op.gear = null
+
+
+## Parts off a finished job. Success only: salvage is what gets stripped out of
+## a position the squad actually held at the end of it.
+func _award_salvage(report: MissionReport) -> void:
+	if not report.success:
+		return
+	var parts: int = int(round(report.mission.difficulty * Balance.SALVAGE_PER_DIFFICULTY))
+	if parts <= 0:
+		return
+	state.salvage += parts
+	report.salvage_gained = parts
+
+
+## Plans for something no shop stocks. Hard contracts only, and never for a
+## blueprint the company already holds — a second copy of knowledge is nothing.
+func _award_blueprint(report: MissionReport) -> void:
+	if not report.success:
+		return
+	if report.mission.difficulty < Balance.BLUEPRINT_MIN_DIFFICULTY:
+		return
+	if rng.randf() >= Balance.BLUEPRINT_CHANCE:
+		return
+
+	var unknown: Array[ItemData] = []
+	for item in ItemLibrary.blueprints():
+		if not state.knows_blueprint(item.id):
+			unknown.append(item)
+	if unknown.is_empty():
+		return
+
+	var found: ItemData = unknown[rng.randi() % unknown.size()]
+	learn_blueprint(found.id)
+	report.blueprint_found = found.id
+
+
 ## What the squad carried home. Only on success, only if there is room, and
 ## weighted low — loot supplements the fee rather than replacing it.
 func _award_loot(report: MissionReport) -> void:
@@ -772,8 +1073,9 @@ func _award_loot(report: MissionReport) -> void:
 	for id in ItemLibrary.all():
 		var item: ItemData = ItemLibrary.all()[id]
 		# Harder contracts turn up better kit; nothing blackmarket, because that
-		# shelf is supposed to be earned through reputation.
-		if item.source == ItemData.Source.BLACKMARKET:
+		# shelf is supposed to be earned through reputation, and nothing built
+		# from plans, because those are supposed to be built.
+		if item.source == ItemData.Source.BLACKMARKET or item.is_craftable():
 			continue
 		if item.tier > (2 if report.mission.difficulty >= 70.0 else 1):
 			continue
@@ -782,8 +1084,28 @@ func _award_loot(report: MissionReport) -> void:
 	if candidates.is_empty():
 		return
 	var found: ItemData = candidates[rng.randi() % candidates.size()]
-	state.inventory.append(found.id)
+	state.inventory.append(_found_copy(found.id))
 	report.loot.append(found.id)
+
+
+## Kit picked up in the field has already had a life. It arrives usable and
+## worn, which is what makes the workshop worth walking to rather than a chore
+## bolted onto a free gift.
+func _found_copy(item_id: StringName) -> ItemInstance:
+	return ItemInstance.create(item_id, rng.randf_range(
+		Balance.LOOT_CONDITION_MIN, Balance.LOOT_CONDITION_MAX))
+
+
+## Anything the squad decided to carry out with them, landed when they land.
+##
+## Not when they found it: an item sitting in the warehouse while the people
+## holding it are still in a valley is a lie the inventory screen would tell.
+func _land_carried_kit(deployment: Deployment, report: MissionReport) -> void:
+	for id in deployment.carried_out:
+		if not state.has_storage_room():
+			return
+		state.inventory.append(_found_copy(id))
+		report.loot.append(id)
 
 
 ## Medals, checked against the whole record after every contract.
@@ -978,6 +1300,62 @@ func _tick_board() -> void:
 			_pending_news.append(_penalise_refusal(mission))
 
 
+## What being unable to pay for the base actually costs.
+##
+## A week in the red is a warning. Two in a row and something gets let go: the
+## most expensive facility drops a level, refunding a little and cutting the
+## upkeep that could not be met. Without this the base was a one-way ratchet and
+## the economy stopped mattering the moment the last facility was bought.
+func _settle_upkeep(missed_payroll: bool) -> void:
+	if not missed_payroll:
+		state.weeks_in_debt = 0
+		return
+
+	state.weeks_in_debt += 1
+	if state.weeks_in_debt < Balance.UPKEEP_GRACE_WEEKS:
+		_pending_news.append({
+			"title": "The books are red",
+			"line": "The week closed short. Another like it and something in the base goes.",
+			"good": false,
+		})
+		return
+
+	var worst: StringName = &""
+	var worst_upkeep := 0
+	for id in state.facilities:
+		var level: int = int(state.facilities[id])
+		if level <= 0:
+			continue
+		var facility := FacilityLibrary.get_facility(id)
+		if facility == null:
+			continue
+		var upkeep: int = facility.upkeep_at(level)
+		if upkeep > worst_upkeep:
+			worst_upkeep = upkeep
+			worst = id
+
+	if worst == &"":
+		_pending_news.append({
+			"title": "Nothing left to sell",
+			"line": "The company is in debt and there is no base left to cut.",
+			"good": false,
+		})
+		return
+
+	var facility := FacilityLibrary.get_facility(worst)
+	var level: int = int(state.facilities[worst])
+	state.facilities[worst] = level - 1
+	state.diamonds += int(round(float(facility.cost_to_upgrade(level - 1)) * 0.4))
+	state.weeks_in_debt = 0
+
+	_pending_news.append({
+		"title": "Something had to go",
+		"line": "Two weeks short. The %s was cut back to level %d to stop the bleeding." % [
+			facility.display_name, level - 1],
+		"good": false,
+	})
+
+
 func _close_week() -> void:
 	# The whole bill, not just wages: rations, ammunition, medical and the base
 	# itself. This is the budget sheet the design doc asks for, and it is the
@@ -985,6 +1363,7 @@ func _close_week() -> void:
 	var bill := Economy.weekly_costs(state)
 	var total: int = int(bill["total"])
 	state.diamonds -= total
+	state.deployed_last_week = state.deployed_this_week
 	state.deployed_this_week = 0
 
 	# Retainers pay whether or not anyone went anywhere. That is the whole
@@ -994,6 +1373,7 @@ func _close_week() -> void:
 		state.diamonds += retainer_pay
 
 	var missed_payroll: bool = state.diamonds < 0
+	_settle_upkeep(missed_payroll)
 
 	_settle_morale(missed_payroll)
 	_check_desertions()

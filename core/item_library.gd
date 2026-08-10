@@ -64,6 +64,35 @@ static func _make_counter(
 	return item
 
 
+## A blueprint item: never stocked, built at a bench from parts, money and days.
+##
+## Every one of these has a sharp edge. Crafted kit is meant to be worth the
+## contract that turned up the plans, but an item that is simply better than the
+## shop's is not a loadout decision — it is the end of one.
+static func _make_blueprint(
+	p_id: StringName,
+	p_name: String,
+	p_description: String,
+	p_slot: int,
+	p_facility: StringName,
+	p_price: int,
+	p_skills: Dictionary,
+	p_score: float,
+	p_danger: float,
+	p_salvage: int,
+	p_craft_price: int,
+	p_days: int
+) -> ItemData:
+	var item := _make(p_id, p_name, p_description, p_slot,
+		ItemData.Source.WORKSHOP, 2, p_price, p_skills, p_score, p_danger)
+	item.craft_facility = p_facility
+	item.craft_salvage = p_salvage
+	item.craft_price = p_craft_price
+	item.craft_days = p_days
+	item.craft_level = 2
+	return item
+
+
 static func all() -> Dictionary:
 	if not _cache.is_empty():
 		return _cache
@@ -146,6 +175,34 @@ static func all() -> Dictionary:
 		_make(&"combat_stimulants", "Combat Stimulants",
 			"They will not feel the hit. They will feel everything else afterwards.",
 			GEAR, BLACKMARKET, 2, 8000, {S.COMBAT: 12, S.ENDURANCE: 14}, 2.0, 6.0, 30),
+
+		# --- Blueprints -----------------------------------------------------
+		# Built at a bench, never sold. Each one covers a gap the shelves do not:
+		# something between two shop items, bought with parts and days instead of
+		# money, and paid for with a drawback the shop version does not have.
+		_make_blueprint(&"shop_smg", "Shop-Built SMG",
+			"Assembled here out of what came back. Quick, quiet, and it will jam when it matters.",
+			WEAPON, FacilityLibrary.ARMOURY, 3200,
+			{S.COMBAT: 11, S.STEALTH: 7}, 1.0, 4.0,
+			55, 1400, 4),
+
+		_make_blueprint(&"composite_harness", "Composite Harness",
+			"Plate where it counts and webbing everywhere else. Half the protection of a carrier at a fraction of the weight.",
+			GEAR, FacilityLibrary.QUARTERMASTER, 3000,
+			{S.ENDURANCE: 6, S.STEALTH: -2}, 0.0, -8.0,
+			45, 1100, 4),
+
+		_make_blueprint(&"shaped_charges", "Shaped Charges",
+			"Cut to the millimetre for the door in front of them. Nobody carrying these wants a firefight.",
+			WEAPON, FacilityLibrary.ARMOURY, 2800,
+			{S.TECH: 17, S.COMBAT: -4}, 1.0, 2.0,
+			40, 900, 3),
+
+		_make_blueprint(&"rebuilt_optics", "Rebuilt Optics",
+			"Two broken sets making one working one. It sees in the dark and it weighs like a brick.",
+			GEAR, FacilityLibrary.QUARTERMASTER, 3600,
+			{S.STEALTH: 13, S.COMBAT: 3, S.ENDURANCE: -4}, 1.0, -2.0,
+			60, 1600, 5),
 	]
 
 	for item in list:
@@ -155,6 +212,16 @@ static func all() -> Dictionary:
 
 static func get_item(id: StringName) -> ItemData:
 	return all().get(id, null)
+
+
+## Every item that exists only as a set of plans.
+static func blueprints() -> Array[ItemData]:
+	var found: Array[ItemData] = []
+	for id in all():
+		var item: ItemData = all()[id]
+		if item.is_craftable():
+			found.append(item)
+	return found
 
 
 ## What a given shop will sell right now, given facility levels and reputation.

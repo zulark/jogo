@@ -170,28 +170,31 @@ func _make_squad_row(op: OperatorData) -> Control:
 ## everyone else's list.
 func _slot_picker(op: OperatorData, slot: int, caption: String) -> Control:
 	var state := Game.campaign.state
-	var equipped_id: StringName = op.weapon_id if slot == ItemData.Slot.WEAPON else op.gear_id
+	var equipped := op.slot_instance(slot)
 
 	var picker := OptionButton.new()
 	picker.add_theme_font_size_override("font_size", UiStyle.SIZE_CAPTION)
 	picker.custom_minimum_size.y = 30
 	UiStyle.grow(picker)
 
-	var options: Array[StringName] = [&""]
+	# Condition is on every line because this is the screen where it costs: a
+	# carrier at 40% is a different number in the breakdown to the right.
+	var options: Array = [null]
 	picker.add_item("%s: standard issue" % caption)
 
-	var equipped := ItemLibrary.get_item(equipped_id)
 	if equipped != null:
-		options.append(equipped_id)
-		picker.add_item("%s: %s" % [caption, equipped.display_name])
+		options.append(equipped)
+		picker.add_item("%s: %s · %d%%" % [
+			caption, equipped.display_name(), int(round(equipped.condition))])
 
-	for item in state.available_items(slot):
-		if item.id == equipped_id:
+	for instance in state.available_items(slot):
+		if instance == equipped:
 			continue
-		options.append(item.id)
-		picker.add_item("%s: %s" % [caption, item.display_name])
+		options.append(instance)
+		picker.add_item("%s: %s · %d%%" % [
+			caption, instance.display_name(), int(round(instance.condition))])
 
-	picker.select(maxi(0, options.find(equipped_id)))
+	picker.select(maxi(0, options.find(equipped)))
 	picker.item_selected.connect(func(index: int):
 		Game.campaign.equip(op, options[index], slot)
 		refresh()

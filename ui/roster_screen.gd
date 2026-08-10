@@ -151,6 +151,16 @@ func _make_row(op: OperatorData) -> Button:
 	row.add_child(UiStyle.fatigue_meter(op, 74))
 	row.add_child(UiStyle.stat(
 		"Status", UiStyle.status_text(op), UiStyle.status_color(op.status), 104))
+
+	# Kit that has stopped working is worth saying on the list rather than only
+	# inside the loadout picker. Somebody carrying a dead plate carrier is
+	# strictly worse off than somebody carrying nothing, and the roster is where
+	# a squad gets picked.
+	row.add_child(UiStyle.stat(
+		"Kit",
+		"BROKEN" if op.has_unserviceable_kit() else "—",
+		UiStyle.RUST if op.has_unserviceable_kit() else UiStyle.TEXT_3,
+		72))
 	row.add_child(UiStyle.stat("Weekly", str(op.salary), UiStyle.TEXT_2, 60))
 
 	return button
@@ -406,7 +416,7 @@ func _rebuild_detail() -> void:
 ## operator disappears from everyone else's list.
 func _slot_picker(op: OperatorData, slot: int, caption: String) -> Control:
 	var state := Game.campaign.state
-	var equipped_id: StringName = op.weapon_id if slot == ItemData.Slot.WEAPON else op.gear_id
+	var equipped := op.slot_instance(slot)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -419,21 +429,24 @@ func _slot_picker(op: OperatorData, slot: int, caption: String) -> Control:
 	picker.add_theme_font_size_override("font_size", UiStyle.SIZE_SMALL)
 	UiStyle.grow(picker)
 
-	var options: Array[StringName] = [&""]
+	# Copies, not types: which carbine matters once the company owns a new one
+	# and a worn one, so every entry carries the condition it would go out in.
+	var options: Array = [null]
 	picker.add_item("Standard issue")
 
-	var equipped := ItemLibrary.get_item(equipped_id)
 	if equipped != null:
-		options.append(equipped_id)
-		picker.add_item(equipped.display_name)
+		options.append(equipped)
+		picker.add_item("%s  ·  %d%%" % [
+			equipped.display_name(), int(round(equipped.condition))])
 
-	for item in state.available_items(slot):
-		if item.id == equipped_id:
+	for instance in state.available_items(slot):
+		if instance == equipped:
 			continue
-		options.append(item.id)
-		picker.add_item(item.display_name)
+		options.append(instance)
+		picker.add_item("%s  ·  %d%%" % [
+			instance.display_name(), int(round(instance.condition))])
 
-	picker.select(options.find(equipped_id))
+	picker.select(maxi(0, options.find(equipped)))
 	picker.item_selected.connect(func(index: int):
 		Game.campaign.equip(op, options[index], slot)
 		refresh()
@@ -443,7 +456,7 @@ func _slot_picker(op: OperatorData, slot: int, caption: String) -> Control:
 	var effect := UiStyle.text(
 		equipped.effect_text() if equipped != null else "",
 		UiStyle.SIZE_CAPTION,
-		UiStyle.TEXT_3)
+		UiStyle.condition_color(equipped) if equipped != null else UiStyle.TEXT_3)
 	effect.custom_minimum_size.x = 210
 	effect.clip_text = true
 	row.add_child(effect)

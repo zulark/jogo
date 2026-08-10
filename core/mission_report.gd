@@ -56,11 +56,36 @@ var kills: Dictionary = {}
 ## it never contradicts either.
 var story: Array[String] = []
 
+## The decisions the player took over the radio while the squad was out, in the
+## order they were taken. MissionStory folds them into the feed, so the report
+## reads as one account rather than as a debrief with a separate log beside it.
+var field_lines: Array[String] = []
+
+## Operators pulled out of the contract early. They take no further part: no
+## harm roll, no kills, and the score they were contributing is subtracted in
+## the breakdown rather than quietly removed.
+var withdrawn: Array = []
+
+## Set when the player called the whole thing off. A failure, but not the same
+## failure as being beaten — nobody was still standing there when it ended.
+var withdrew: bool = false
+
 ## OperatorData -> squadmates they pulled out.
 var saves: Dictionary = {}
 
 ## Item ids brought back.
 var loot: Array[StringName] = []
+
+## Parts recovered off the contract, spendable at a bench.
+var salvage_gained: int = 0
+
+## Plans for something the shops do not sell, if this one turned any up.
+var blueprint_found: StringName = &""
+
+## What the contract did to the kit that went on it — only the lines worth
+## reading, which means wear that crossed into unserviceable and anything signed
+## back in off somebody who did not come home.
+var kit_notes: Array[String] = []
 
 ## Set when a named target went down. The headline of the whole contract.
 var trophy_line: String = ""
@@ -80,6 +105,18 @@ var client_standing_change: int = 0
 
 func add_modifier(label: String, value: float, source: int, op_id: StringName = &"") -> void:
 	modifiers.append(Modifier.create(label, value, source, op_id))
+
+
+## Everything this operator is currently worth to the squad score, read straight
+## off the breakdown rather than recalculated. Pulling somebody out of a contract
+## costs exactly this, and taking the number from the list is what stops the
+## breakdown and the score from disagreeing.
+func contribution_of(op: OperatorData) -> float:
+	var total := 0.0
+	for m in modifiers:
+		if m.operator_id == op.id:
+			total += m.value
+	return total
 
 
 func modifiers_by_source(source: int) -> Array[Modifier]:

@@ -92,17 +92,26 @@ func _total_kills(report: MissionReport) -> int:
 
 func _present(report: MissionReport) -> void:
 	_current = report
-	_title.text = "CONTRACT COMPLETE" if report.success else "CONTRACT FAILED"
+	# A contract the company called off is not a contract it lost. Quoting a roll
+	# against the odds would be a lie either way: no dice were thrown, the player
+	# made the call, and the card should say so.
+	if report.withdrew:
+		_title.text = "CONTRACT CALLED OFF"
+	else:
+		_title.text = "CONTRACT COMPLETE" if report.success else "CONTRACT FAILED"
 	_title.add_theme_font_override("font", UiStyle.display())
 	_title.add_theme_color_override(
 		"font_color", UiStyle.MINT if report.success else UiStyle.RUST)
 
-	_summary.text = "%s  ·  %s for %s  ·  rolled %d against %d%%  ·  paid %d diamonds" % [
+	var outcome: String = (
+		"ended from the field at %d%%" % report.chance_percent() if report.withdrew
+		else "rolled %d against %d%%" % [
+			int(report.roll_value * 100.0), report.chance_percent()])
+	_summary.text = "%s  ·  %s for %s  ·  %s  ·  paid %d diamonds" % [
 		report.mission.title,
 		report.mission.region_name(),
 		report.mission.client_name(),
-		int(report.roll_value * 100.0),
-		report.chance_percent(),
+		outcome,
 		report.reward_paid,
 	]
 
@@ -136,6 +145,32 @@ func _present(report: MissionReport) -> void:
 			_story_list.add_child(UiStyle.text(
 				"Brought back: %s" % TextUtil.join_names(names),
 				UiStyle.SIZE_SMALL, UiStyle.MINT))
+
+	# Plans first: a blueprint is the rarest thing a contract produces and the
+	# only one that changes what the company can build from here on.
+	if report.blueprint_found != &"":
+		var plan := ItemLibrary.get_item(report.blueprint_found)
+		if plan != null:
+			_story_list.add_child(UiStyle.spacer(8))
+			var line := UiStyle.text(
+				"Plans recovered: %s. The workshop can build these now." % plan.display_name,
+				UiStyle.SIZE_SMALL, UiStyle.OCHRE)
+			line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_story_list.add_child(line)
+
+	if report.salvage_gained > 0:
+		_story_list.add_child(UiStyle.text(
+			"Stripped off the site: %s." % TextUtil.count(report.salvage_gained, "part"),
+			UiStyle.SIZE_SMALL, UiStyle.TEXT_2))
+
+	# What the contract did to the kit. Only the lines worth reading — something
+	# that stopped working out there, or something signed back in off a body.
+	if not report.kit_notes.is_empty():
+		_story_list.add_child(UiStyle.spacer(8))
+		for note in report.kit_notes:
+			var line := UiStyle.text(note, UiStyle.SIZE_SMALL, UiStyle.RUST)
+			line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_story_list.add_child(line)
 
 	for op in report.squad.members():
 		_outcome_list.add_child(_make_row(report, op))

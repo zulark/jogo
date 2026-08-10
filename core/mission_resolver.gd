@@ -142,10 +142,28 @@ static func preview(squad: Squad, mission: MissionData, intel_bonus: float = 0.0
 		if not is_zero_approx(kit):
 			var kit_names: PackedStringArray = []
 			for item in op.equipment():
-				kit_names.append(item.display_name)
+				# Named with its state, because a rifle at 40% is a different
+				# line on this breakdown than the same rifle new, and the whole
+				# promise of the odds screen is that the list explains the number.
+				kit_names.append("%s (%s)" % [item.display_name(), item.condition_word().to_lower()])
 			report.add_modifier(
 				"Kit: %s" % ", ".join(kit_names),
 				kit * share,
+				GameEnums.ModifierSource.CONDITION,
+				op.id
+			)
+
+		# Broken kit is worth saying out loud even where it scores nothing. Its
+		# skill bonuses have already fallen out of get_skill above and its
+		# drawbacks have not, so the operator is quietly worse for carrying it —
+		# and a cost with no line to explain it is the one thing this screen
+		# promises never to do.
+		for item in op.equipment():
+			if item.is_serviceable():
+				continue
+			report.add_modifier(
+				"%s is carrying an unserviceable %s" % [op.display_label(), item.display_name()],
+				0.0,
 				GameEnums.ModifierSource.CONDITION,
 				op.id
 			)
@@ -216,17 +234,31 @@ static func preview(squad: Squad, mission: MissionData, intel_bonus: float = 0.0
 			GameEnums.ModifierSource.COMPOSITION
 		)
 
-	# --- Odds ---------------------------------------------------------------
+	recompute(report)
+	return report
+
+
+## Re-sum the breakdown and re-derive the odds from it.
+##
+## Called at the end of every preview, and again whenever something changes a
+## report that has already been previewed — a decision taken over the radio
+## while the squad is out. The score is never edited directly anywhere: a change
+## adds a line and the total is taken from the list, which is the only
+## arrangement where the breakdown cannot drift away from the percentage.
+static func recompute(report: MissionReport) -> void:
 	var total := 0.0
 	for m in report.modifiers:
 		total += m.value
 	report.squad_score = total
+	report.success_chance = chance_for(report.squad_score, report.difficulty)
 
-	var delta: float = report.squad_score - report.difficulty
-	var raw: float = 1.0 / (1.0 + exp(-delta / Balance.SPREAD))
-	report.success_chance = clampf(raw, Balance.MIN_SUCCESS, Balance.MAX_SUCCESS)
 
-	return report
+## The curve, in one place. Also called with hypothetical numbers by anything
+## that has to quote the player a price before they pay it — a field decision
+## saying "58% → 64%" is reading this rather than approximating it.
+static func chance_for(score: float, difficulty: float) -> float:
+	var raw: float = 1.0 / (1.0 + exp(-(score - difficulty) / Balance.SPREAD))
+	return clampf(raw, Balance.MIN_SUCCESS, Balance.MAX_SUCCESS)
 
 
 ## The ground trying to kill people who came unprepared. Unlike the emphasis
@@ -436,13 +468,26 @@ static func _apply_bond_terms(report: MissionReport, squad: Squad) -> void:
 
 
 ## Roll the dice on an existing preview. Mutates and returns the same report.
-static func roll(report: MissionReport, rng: RandomNumberGenerator) -> MissionReport:
+##
+## `withdrawal` is the player having called the contract off over the radio.
+## There is nothing to roll — the job is not done — but getting out is not free
+## either, so the harm pass still runs at a fraction of the contract's danger.
+static func roll(
+	report: MissionReport,
+	rng: RandomNumberGenerator,
+	withdrawal: bool = false
+) -> MissionReport:
 	if report.mission == null or report.squad == null:
 		return report
 
 	report.rolled = true
-	report.roll_value = rng.randf()
-	report.success = report.roll_value < report.success_chance
+	if withdrawal:
+		report.withdrew = true
+		report.roll_value = 1.0
+		report.success = false
+	else:
+		report.roll_value = rng.randf()
+		report.success = report.roll_value < report.success_chance
 
 	report.reward_paid = (
 		report.mission.reward_diamonds if report.success
@@ -451,15 +496,19 @@ static func roll(report: MissionReport, rng: RandomNumberGenerator) -> MissionRe
 
 	# A failed mission is where people die. Success still costs blood sometimes.
 	var danger: float = report.mission.risk
-	if not report.success:
+	if withdrawal:
+		danger *= Balance.WITHDRAWAL_DANGER_MULT
+	elif not report.success:
 		danger *= Balance.FAILURE_DANGER_MULT
 
 	# How much of the harm band is fatal, for THIS contract. A dangerous job that
-	# went wrong kills; a milk run that went wrong mostly does not.
+	# went wrong kills; a milk run that went wrong mostly does not. Breaking
+	# contact deliberately does not carry the failure share: the squad was
+	# leaving, not losing.
 	var death_share: float = (
 		Balance.DEATH_SHARE
 		+ report.mission.risk * Balance.DEATH_SHARE_PER_RISK
-		+ (Balance.DEATH_SHARE_ON_FAILURE if not report.success else 0.0)
+		+ (Balance.DEATH_SHARE_ON_FAILURE if not report.success and not withdrawal else 0.0)
 	)
 
 	var has_medic: bool = report.squad.has_role(GameEnums.Role.MEDIC)
@@ -472,6 +521,15 @@ static func roll(report: MissionReport, rng: RandomNumberGenerator) -> MissionRe
 	))
 
 	for op in report.squad.members():
+		# Anyone pulled out earlier sat the rest of it out at the extraction
+		# point. No harm roll and no kills — and the score they were worth was
+		# taken off the breakdown when the call was made, so this is not free.
+		if report.withdrawn.has(op):
+			report.fates[op] = GameEnums.Fate.UNHARMED
+			report.recovery_days[op] = 0
+			report.xp_gained[op] = int(round(float(xp_award) * Balance.WITHDRAWN_XP_RATIO))
+			continue
+
 		var threat := danger
 
 		var survival: float = (
@@ -583,6 +641,10 @@ static func _roll_kills(
 	var expected: float = contact * (0.5 + combat * 2.5) * (report.mission.risk / 55.0)
 	if fate == GameEnums.Fate.KILLED:
 		expected *= 0.6
+	# A squad that broke contact was leaving, not fighting through. Whatever
+	# shooting there was happened on the way out.
+	if report.withdrew:
+		expected *= 0.4
 
 	var count: int = int(floor(expected))
 	if rng.randf() < expected - float(count):
@@ -595,8 +657,8 @@ static func _roll_kills(
 
 	# One line per kill: who, what, how, and how far away. A tally is a number;
 	# this is a story the player can retell.
-	var methods: Array = _METHODS.get(op.weapon_id, _METHODS_DEFAULT)
-	var long_range: bool = op.weapon_id == &"marksman_rifle"
+	var methods: Array = _METHODS.get(op.weapon_item_id(), _METHODS_DEFAULT)
+	var long_range: bool = op.weapon_item_id() == &"marksman_rifle"
 
 	for i in count:
 		var kind: String = _ENEMY_KINDS[rng.randi() % _ENEMY_KINDS.size()]

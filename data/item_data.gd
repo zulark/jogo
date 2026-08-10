@@ -9,7 +9,11 @@ extends Resource
 ## rule on purpose, which is what makes them worth the reputation.
 
 enum Slot { WEAPON, GEAR }
-enum Source { ARMOURY, QUARTERMASTER, BLACKMARKET }
+
+## WORKSHOP items are never for sale anywhere. The only way to hold one is to
+## find the plans on a contract and build it, which is what makes a blueprint
+## worth carrying home.
+enum Source { ARMOURY, QUARTERMASTER, BLACKMARKET, WORKSHOP }
 
 @export var id: StringName = &""
 @export var display_name: String = ""
@@ -40,6 +44,21 @@ enum Source { ARMOURY, QUARTERMASTER, BLACKMARKET }
 ## turns "the Kivu Border is dangerous" into "the Kivu Border costs 900 a head",
 ## which is a decision rather than a wall.
 @export var counters_hazard: GameEnums.Hazard = GameEnums.Hazard.NONE
+
+## --- Blueprints ---
+## Set on WORKSHOP items only. `price` still stands for what the thing is worth,
+## because scrap and resale are priced off it; these are what it costs to make.
+@export var craft_salvage: int = 0
+@export var craft_price: int = 0
+@export var craft_days: int = 0
+
+## Which bench builds it, and the level that bench has to be at.
+@export var craft_facility: StringName = &""
+@export var craft_level: int = 2
+
+
+func is_craftable() -> bool:
+	return source == Source.WORKSHOP
 
 
 func slot_name() -> String:

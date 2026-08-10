@@ -389,6 +389,59 @@ const INTEL_MISHAP_BASE := 0.16
 const INTEL_MISHAP_DIFFICULTY := 5.0
 
 
+# --- Losing the base ---------------------------------------------------------
+#
+# Facilities were a one-way ratchet: buy one and there is no decision left in it
+# for the rest of the run. Making them losable keeps money scarce after the
+# buying phase, and turns "can I afford the upkeep" into a live question rather
+# than a line on a sheet.
+
+## Consecutive weeks in debt before something in the base is let go. Two, not
+## one — a single bad week is a setback, not a collapse, and the player gets a
+## warning week to trade their way out of it.
+const UPKEEP_GRACE_WEEKS := 2
+
+
+# --- Daily incidents ---------------------------------------------------------
+#
+# Tuned so a week of five days carries roughly one or two decisions. Much more
+# and ending a day becomes a chore; much less and it goes back to being a button
+# with nothing behind it.
+
+## Chance per day that something lands on the desk.
+const INCIDENT_CHANCE := 0.26
+
+## Days that must pass after one before another can fire. Two incidents on
+## consecutive days reads as harassment rather than as a company running.
+const INCIDENT_COOLDOWN := 2
+
+
+# --- Field events ------------------------------------------------------------
+#
+# The decision inside a contract rather than around it. A squad is gone for four
+# to seven days and until now the player agreed the odds at the door and then
+# watched a timer; this is the radio call that asks them to spend something.
+
+## Chance per deployed day that the squad calls in with a situation. Over a
+## four-day contract that lands one about two thirds of the time, which is often
+## enough to be part of a contract and rare enough to still be an event.
+const FIELD_EVENT_CHANCE := 0.28
+
+## How many a single contract may raise. One: a second call would be answered
+## with the first one's consequences still unread, and the point is that the
+## decision is the contract's turning point rather than its weather.
+const FIELD_EVENTS_PER_DEPLOYMENT := 1
+
+## Fraction of the contract's danger that still applies when the player pulls
+## the squad out. Breaking contact is the safe option, not a free one.
+const WITHDRAWAL_DANGER_MULT := 0.45
+
+## What an operator who sat out the rest of the contract at the extraction point
+## learns from it. Not nothing — they were there — and not what the people who
+## finished it earned.
+const WITHDRAWN_XP_RATIO := 0.5
+
+
 # --- Unexpected events -------------------------------------------------------
 
 ## Base weekly chance that something happens at all.
@@ -425,6 +478,103 @@ const SIDE_JOB_BOARD_SIZE := 4
 
 ## Chance a successful contract turns up something worth keeping.
 const LOOT_CHANCE := 0.34
+
+## Kit found in the field has already had a life. It arrives usable and worn,
+## which is what makes the workshop worth walking to rather than a chore bolted
+## onto a free gift.
+const LOOT_CONDITION_MIN := 38.0
+const LOOT_CONDITION_MAX := 74.0
+
+
+# --- Kit condition -----------------------------------------------------------
+#
+# Durability is the last system in the design doc, and the one most likely to
+# turn into an inventory chore. It earns its place by being a slider on numbers
+# the player already reads: a worn rifle is not "a rifle at 61 durability", it is
+# "Combat +8 instead of +13" on the same breakdown the odds screen has always
+# shown. The rule is that BENEFITS scale with condition and DRAWBACKS do not, so
+# neglected kit is eventually worse than no kit.
+
+const CONDITION_NEW := 100.0
+
+## At or below this an item gives nothing and cannot be issued. A discrete
+## broken state rather than a smooth fade to zero, because the workshop screen
+## and the loadout picker both need to say plainly whether a thing works.
+const CONDITION_UNSERVICEABLE := 20.0
+
+## Condition lost per day in the field, per item carried.
+##
+## Tuned down hard from a first pass at 3.1. At that rate the twelve-week sim
+## swung from +6892 solvent to −4493 bankrupt on wear alone, and the reason was
+## not the repair bills: weaker kit lowered the odds, which cost contracts,
+## which killed people, which is the same single-entry death spiral v0.7 had to
+## dig out of. Kit should be a running cost, not a second lethality dial. At 1.7
+## a five-day contract at middling danger takes about eleven points off, so a
+## piece of kit is good for six or seven jobs before it needs the bench.
+const WEAR_PER_CONTRACT_DAY := 1.7
+
+## And per point of the contract's danger, per day. Kit comes back from a lethal
+## job in a worse state than from a long quiet one.
+const WEAR_PER_RISK_DAY := 0.012
+
+## Multiplier when the contract failed. Losing is hard on equipment.
+const WEAR_ON_FAILURE := 1.5
+
+## Extra wear on kit recovered from somebody who did not come home. It is not
+## lost with them — a rifle outliving the person who earned its reputation is
+## the whole point of the item histories this is groundwork for — but it comes
+## back in the state that implies.
+const WEAR_ON_DEATH := 30.0
+
+
+# --- Repair, scrap and crafting ----------------------------------------------
+#
+# The Armoury and Quartermaster stop being pure shopfronts here. Each runs a
+# bench per facility level, and a bench is the scarce thing: repairing before a
+# contract means the item is not on the contract.
+
+## Fraction of the item's price a full restoration costs.
+const REPAIR_COST_RATIO := 0.26
+
+## Days a full restoration takes at facility level 1. Level 2 and 3 take a day
+## less each, floored at one.
+const REPAIR_DAYS_MAX := 5
+
+## Condition ceiling lost permanently by a repair that puts back a full 100
+## points, scaled down for anything less.
+##
+## Proportional rather than flat, deliberately. A flat charge per visit would
+## mean topping something up at 90% cost the same ceiling as rebuilding it from
+## 20%, which makes careful maintenance strictly worse than neglect — a gotcha
+## rather than a decision. Priced by the damage put right, the question stops
+## being *when* to repair and goes back to being whether to spend the money and
+## the bench at all.
+const REPAIR_CEILING_LOSS := 7.5
+
+## Ceiling below which the bench will not take it back. Past here a repair buys
+## so little that replacing it is the honest answer, and the parts are worth
+## more than the item.
+const CONDITION_BEYOND_REPAIR := 40.0
+
+## Salvage recovered per diamond of an item's price, when stripped at full
+## condition. A 2600-diamond rifle is worth about 26 parts; a worn one, less.
+const SCRAP_PER_PRICE := 0.010
+
+## Fraction of the scrap value that survives regardless of condition. Even a
+## write-off has a barrel and a stock in it.
+const SCRAP_CONDITION_FLOOR := 0.45
+
+## Salvage a successful contract brings home, per point of difficulty. Gated on
+## success: parts come off work that got finished.
+const SALVAGE_PER_DIFFICULTY := 0.11
+
+## Chance a successful contract turns up plans for something the shops do not
+## sell. Only on hard work, and only for a blueprint the company does not
+## already hold — see Campaign._award_blueprint.
+const BLUEPRINT_CHANCE := 0.22
+
+## Difficulty a contract must reach before plans are worth finding on it.
+const BLUEPRINT_MIN_DIFFICULTY := 52.0
 
 
 # --- Retainers ---------------------------------------------------------------

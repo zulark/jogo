@@ -1,12 +1,17 @@
 class_name InventoryScreen
 extends VBoxContainer
 
-## Stock. What the company owns, who is carrying it, and what is spare.
+## Stock. What the company owns, what state it is in, and who is carrying it.
 ##
 ## Separate from the Market on purpose: the Market is about spending money, this
-## is about knowing what you already have. Once loot starts coming back from
-## contracts those are genuinely different questions, and answering "do I own a
-## plate carrier for this job" should not require walking a shop.
+## is about knowing what you already have. Since v0.13 that is a different
+## question again, because two carbines are no longer the same thing — one of
+## them came back from the Kivu Border at 31%.
+##
+## Which is why this lists one row per **copy** rather than one per type. The
+## v0.5 rule was that twelve identical carbines should be one line saying
+## twelve; twelve carbines at twelve different conditions are twelve things, and
+## collapsing them would hide the only fact on the screen worth acting on.
 
 signal company_changed()
 
@@ -58,27 +63,31 @@ func refresh() -> void:
 				ItemData.Slot.WEAPON, ItemData.Slot.GEAR][index]
 		index += 1
 
-	# One row per distinct item, with counts — twelve identical carbines should
-	# be one line saying twelve, not twelve lines.
-	var counts := {}
-	for id in state.inventory:
-		counts[id] = int(counts.get(id, 0)) + 1
+	# Worst first. The reason to open this screen is nearly always something
+	# that has gone wrong with a specific item, so that is what the top row is.
+	var sorted := state.inventory.duplicate()
+	sorted.sort_custom(func(a: ItemInstance, b: ItemInstance):
+		if is_equal_approx(a.condition, b.condition):
+			return a.display_name() < b.display_name()
+		return a.condition < b.condition
+	)
 
 	var shown := 0
 	var carried_total := 0
-	for id in counts:
-		var item := ItemLibrary.get_item(id)
-		if item == null:
-			continue
-		var spare_count: int = state.unequipped_count(id)
-		carried_total += int(counts[id]) - spare_count
+	var broken := 0
+	for instance: ItemInstance in sorted:
+		var spare_copy: bool = state.is_spare(instance)
+		if not spare_copy:
+			carried_total += 1
+		if not instance.is_serviceable():
+			broken += 1
 
-		if _slot_filter >= 0 and item.slot != _slot_filter:
+		if _slot_filter >= 0 and instance.slot() != _slot_filter:
 			continue
-		if _only_spare and spare_count <= 0:
+		if _only_spare and not spare_copy:
 			continue
 
-		_list.add_child(_make_row(item, int(counts[id]), spare_count, state))
+		_list.add_child(_make_row(instance, state))
 		shown += 1
 
 	if shown == 0:
@@ -86,14 +95,18 @@ func refresh() -> void:
 			"Nothing here. Buy kit in the Market, or bring it back off a contract.",
 			UiStyle.SIZE_SMALL, UiStyle.TEXT_3))
 
-	_summary.text = "%s held · %d carried · %d / %d storage" % [
+	var summary := "%s held · %d issued · %d / %d storage" % [
 		TextUtil.count(state.inventory.size(), "item"), carried_total,
 		state.storage_used(), state.storage_capacity()]
-	_summary.add_theme_color_override(
-		"font_color", UiStyle.RUST if not state.has_storage_room() else UiStyle.TEXT_2)
+	if broken > 0:
+		summary += " · %d unserviceable" % broken
+	_summary.text = summary
+	_summary.add_theme_color_override("font_color",
+		UiStyle.RUST if broken > 0 or not state.has_storage_room() else UiStyle.TEXT_2)
 
 
-func _make_row(item: ItemData, owned: int, spare: int, state: GameState) -> Control:
+func _make_row(instance: ItemInstance, state: GameState) -> Control:
+	var item := instance.data()
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", UiStyle.panel(UiStyle.ROW))
 
@@ -104,37 +117,48 @@ func _make_row(item: ItemData, owned: int, spare: int, state: GameState) -> Cont
 	var header := HBoxContainer.new()
 	header.add_theme_constant_override("separation", 12)
 	header.add_child(UiStyle.identity(
-		item.display_name,
-		"%s  ·  Tier %d  ·  %s" % [item.slot_name(), item.tier, item.effect_text()]))
-	header.add_child(UiStyle.stat("Owned", str(owned), UiStyle.TEXT, 66))
-	header.add_child(UiStyle.stat(
-		"Spare", str(spare), UiStyle.MINT if spare > 0 else UiStyle.TEXT_3, 62))
+		instance.display_name(),
+		"%s  ·  %s" % [instance.condition_text(), instance.effect_text()]))
+	header.add_child(UiStyle.condition_meter(instance, 96))
 
-	var sell := UiStyle.confirm_button("Sell", "Sure?", func():
-		if Game.campaign.sell_item(item.id):
+	var holder := state.holder_of(instance)
+	var where := "Spare"
+	var where_color := UiStyle.MINT
+	if holder != null:
+		where = "Issued"
+		where_color = UiStyle.STEEL
+	elif state.is_in_workshop(instance):
+		where = "Bench"
+		where_color = UiStyle.OCHRE
+	header.add_child(UiStyle.stat("Status", where, where_color, 78))
+
+	var value := Game.campaign.resale_value(instance)
+	var sell := UiStyle.confirm_button("Sell %d" % value, "Sure?", func():
+		if Game.campaign.sell_item(instance):
 			company_changed.emit()
 			refresh()
-	, 80)
-	sell.custom_minimum_size = Vector2(80, 34)
-	sell.disabled = spare <= 0
+	, 96)
+	sell.custom_minimum_size = Vector2(96, 34)
+	sell.disabled = not state.is_spare(instance)
 	header.add_child(sell)
 	box.add_child(header)
 
-	# Who has it. Without this the only way to find a missing item is to open
-	# every operator in turn.
-	var holders: PackedStringArray = []
-	for op in state.roster:
-		if op.weapon_id == item.id or op.gear_id == item.id:
-			holders.append(op.display_label())
-	if not holders.is_empty():
+	var notes: PackedStringArray = []
+	if holder != null:
+		notes.append("Carried by %s" % holder.display_label())
+	elif state.is_in_workshop(instance):
+		notes.append("On the bench")
+	if instance.contracts > 0:
+		notes.append(TextUtil.count(instance.contracts, "contract"))
+	if instance.max_condition < Balance.CONDITION_NEW:
+		notes.append("rebuilt — will not go past %d%%" % int(round(instance.max_condition)))
+	if item != null and item.counters_hazard != GameEnums.Hazard.NONE:
+		notes.append("cancels %s" % GameEnums.hazard_name(item.counters_hazard).to_lower())
+
+	if not notes.is_empty():
 		var line := UiStyle.text(
-			"Carried by %s" % ", ".join(holders), UiStyle.SIZE_SMALL, UiStyle.TEXT_3)
+			"  ·  ".join(notes), UiStyle.SIZE_SMALL, UiStyle.TEXT_3)
 		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		box.add_child(line)
-
-	if item.counters_hazard != GameEnums.Hazard.NONE:
-		box.add_child(UiStyle.text(
-			"Cancels %s hazard." % GameEnums.hazard_name(item.counters_hazard).to_lower(),
-			UiStyle.SIZE_SMALL, UiStyle.STEEL))
 
 	return card

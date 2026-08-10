@@ -6,7 +6,10 @@ extends Control
 ## It owns navigation and nothing else: screens do their own work and report back
 ## through signals, and only Campaign is allowed to change the game.
 
-enum Tab { ROSTER, CONTRACTS, RECRUITS, TRAINING, INTEL, BASE, MARKET, CLIENTS, BONDS, CEMETERY }
+enum Tab {
+	ROSTER, CONTRACTS, RECRUITS, TRAINING, INTEL,
+	BASE, MARKET, WORKSHOP, CLIENTS, BONDS, CEMETERY,
+}
 
 const ROSTER_SCENE := preload("res://ui/roster_screen.tscn")
 const CONTRACTS_SCENE := preload("res://ui/contracts_screen.tscn")
@@ -15,6 +18,7 @@ const TRAINING_SCENE := preload("res://ui/training_screen.tscn")
 const INTEL_SCENE := preload("res://ui/intel_screen.tscn")
 const BASE_SCENE := preload("res://ui/base_screen.tscn")
 const MARKET_SCENE := preload("res://ui/market_screen.tscn")
+const WORKSHOP_SCENE := preload("res://ui/workshop_screen.tscn")
 const CLIENTS_SCENE := preload("res://ui/clients_screen.tscn")
 const BONDS_SCENE := preload("res://ui/relationships_screen.tscn")
 const STOCK_SCENE := preload("res://ui/inventory_screen.tscn")
@@ -28,6 +32,7 @@ const SQUAD_BUILDER_SCENE := preload("res://ui/squad_builder.tscn")
 @onready var _payroll_label: Label = %PayrollLabel
 @onready var _field_label: Label = %FieldLabel
 @onready var _after_action: AfterAction = %AfterAction
+@onready var _incident_modal: IncidentModal = %IncidentModal
 @onready var _status_row: HBoxContainer = %StatusRow
 @onready var _drawer: PanelContainer = %Drawer
 @onready var _drawer_title: Label = %DrawerTitle
@@ -47,6 +52,7 @@ var _open_drawer := ""
 	Tab.INTEL: %IntelTab as Button,
 	Tab.BASE: %BaseTab as Button,
 	Tab.MARKET: %MarketTab as Button,
+	Tab.WORKSHOP: %WorkshopTab as Button,
 	Tab.CLIENTS: %ClientsTab as Button,
 	Tab.BONDS: %BondsTab as Button,
 	Tab.CEMETERY: %CemeteryTab as Button,
@@ -80,12 +86,19 @@ var _pending_reports: Array[MissionReport] = []
 ## The week's news, collected the same way and shown after the squads.
 var _pending_events: Array = []
 
+## Incidents raised during the day, shown once the squads have been dealt with.
+## A queue rather than a single slot: nothing stops two arriving if the cooldown
+## is ever loosened, and dropping one silently would be worse than showing both.
+var _pending_incidents: Array = []
+
 
 func _ready() -> void:
 	Game.ensure_started()
 	Game.campaign.mission_resolved.connect(_on_mission_resolved)
 	Game.campaign.week_events.connect(_on_week_events)
-	_after_action.closed.connect(_refresh_all)
+	Game.campaign.incident_raised.connect(_on_incident_raised)
+	_after_action.closed.connect(_on_after_action_closed)
+	_incident_modal.closed.connect(_on_incident_closed)
 	for tab in _tab_buttons:
 		_tab_buttons[tab].pressed.connect(_show_tab.bind(tab))
 	# Pivot at the centre so the pulse grows both ways rather than to the right.
@@ -164,6 +177,10 @@ func _show_tab(tab: int) -> void:
 			_swap_screen(screen)
 		Tab.MARKET:
 			var screen := MARKET_SCENE.instantiate() as MarketScreen
+			screen.company_changed.connect(_on_company_changed)
+			_swap_screen(screen)
+		Tab.WORKSHOP:
+			var screen := WORKSHOP_SCENE.instantiate() as WorkshopScreen
 			screen.company_changed.connect(_on_company_changed)
 			_swap_screen(screen)
 		Tab.CLIENTS:
@@ -282,10 +299,8 @@ func _refresh_status_bar() -> void:
 	for deployment in state.deployments:
 		in_field += deployment.squad.size()
 
-	var spare := 0
-	for id in state.inventory:
-		if state.unequipped_count(id) > 0:
-			spare += 1
+	var spare := state.spare_instances().size()
+	var broken := state.unserviceable_spares()
 
 	var expiring := 0
 	for mission in state.board:
@@ -307,8 +322,11 @@ func _refresh_status_bar() -> void:
 		"READY", str(ready_count), UiStyle.MINT if ready_count > 0 else UiStyle.RUST))
 	_status_row.add_child(_status_readout(
 		"IN FIELD", str(in_field), UiStyle.STEEL if in_field > 0 else UiStyle.TEXT_3))
+	# Rust when some of that spare kit is past working: the count alone would
+	# read as good news on the day half the armoury stopped being issuable.
 	_status_row.add_child(_status_readout(
-		"SPARE KIT", str(spare), UiStyle.MINT if spare > 0 else UiStyle.TEXT_3))
+		"SPARE KIT", "%d" % spare if broken == 0 else "%d · %d dead" % [spare, broken],
+		UiStyle.RUST if broken > 0 else (UiStyle.MINT if spare > 0 else UiStyle.TEXT_3)))
 	_status_row.add_child(_status_readout(
 		"EXPIRING", str(expiring), UiStyle.RUST if expiring > 0 else UiStyle.TEXT_3))
 	_status_row.add_child(_status_readout(
@@ -432,15 +450,47 @@ func _flash_day() -> void:
 func _on_end_day_pressed() -> void:
 	_pending_reports.clear()
 	_pending_events.clear()
+	_pending_incidents.clear()
 	Game.campaign.end_day()
 	_flash_day()
 
 	_refresh_all()
-	if _pending_reports.is_empty() and _pending_events.is_empty():
+	_advance_queue()
+
+
+func _on_after_action_closed() -> void:
+	_refresh_all()
+	_advance_queue()
+
+
+## Everything the day produced, one card at a time and in that order: squads that
+## came home first, then the week's news, then the decisions still waiting for an
+## answer. A death should never be stacked behind a modal about worn kit.
+##
+## Re-entered after every close rather than run once, because a decision can
+## itself end a contract — calling one off over the radio produces a debrief
+## that has to be read before whatever was queued behind it.
+func _advance_queue() -> void:
+	if not _pending_reports.is_empty() or not _pending_events.is_empty():
+		var reports := _pending_reports.duplicate()
+		var events := _pending_events.duplicate()
+		_pending_reports.clear()
+		_pending_events.clear()
+		_refresh_status_bar()
+		_after_action.show_reports(reports, events)
 		return
 
-	_refresh_status_bar()
-	_after_action.show_reports(_pending_reports, _pending_events)
+	if not _pending_incidents.is_empty():
+		_incident_modal.show_incident(_pending_incidents.pop_front())
+
+
+func _on_incident_raised(incident: Dictionary) -> void:
+	_pending_incidents.append(incident)
+
+
+func _on_incident_closed() -> void:
+	_refresh_all()
+	_advance_queue()
 
 
 func _on_mission_resolved(report: MissionReport) -> void:
@@ -459,10 +509,11 @@ func _on_load_pressed() -> void:
 	if Game.load_game():
 		Game.campaign.mission_resolved.connect(_on_mission_resolved)
 		Game.campaign.week_events.connect(_on_week_events)
+		Game.campaign.incident_raised.connect(_on_incident_raised)
 		_show_tab(_current_tab)
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.is_pressed() and not event.is_echo():
-		if event.keycode == KEY_SPACE and not _after_action.visible:
+		if event.keycode == KEY_SPACE and not _after_action.visible 				and not _incident_modal.visible:
 			_on_end_day_pressed()

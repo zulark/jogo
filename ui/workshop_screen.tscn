@@ -1,0 +1,96 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/workshop_screen.gd" id="1_workshop"]
+
+[node name="WorkshopScreen" type="VBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 12
+script = ExtResource("1_workshop")
+
+[node name="TopRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Benches" type="HBoxContainer" parent="TopRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Filler" type="Control" parent="TopRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SalvageLabel" type="Label" parent="TopRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_colors/font_color = Color(0.812, 0.616, 0.247, 1)
+theme_override_font_sizes/font_size = 13
+text = "0 parts in the parts bin"
+
+[node name="Columns" type="HBoxContainer" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 18
+
+[node name="BenchColumn" type="VBoxContainer" parent="Columns"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 1.7
+theme_override_constants/separation = 6
+
+[node name="JobsHeading" type="Label" parent="Columns/BenchColumn"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.812, 0.616, 0.247, 1)
+theme_override_font_sizes/font_size = 12
+text = "ON THE BENCH"
+
+[node name="JobsList" type="VBoxContainer" parent="Columns/BenchColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="KitHeading" type="Label" parent="Columns/BenchColumn"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.812, 0.616, 0.247, 1)
+theme_override_font_sizes/font_size = 12
+text = "THE RACK"
+
+[node name="KitScroll" type="ScrollContainer" parent="Columns/BenchColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="KitList" type="VBoxContainer" parent="Columns/BenchColumn/KitScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="BlueprintColumn" type="VBoxContainer" parent="Columns"]
+custom_minimum_size = Vector2(430, 0)
+layout_mode = 2
+size_flags_horizontal = 0
+theme_override_constants/separation = 6
+
+[node name="BlueprintHeading" type="Label" parent="Columns/BlueprintColumn"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.812, 0.616, 0.247, 1)
+theme_override_font_sizes/font_size = 12
+text = "BLUEPRINTS"
+
+[node name="BlueprintScroll" type="ScrollContainer" parent="Columns/BlueprintColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="BlueprintList" type="VBoxContainer" parent="Columns/BlueprintColumn/BlueprintScroll"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(414, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6

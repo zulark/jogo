@@ -26,9 +26,10 @@ const TAB_TRAINING := 3
 const TAB_INTEL := 4
 const TAB_BASE := 5
 const TAB_MARKET := 6
-const TAB_CLIENTS := 7
-const TAB_BONDS := 8
-const TAB_CEMETERY := 9
+const TAB_WORKSHOP := 7
+const TAB_CLIENTS := 8
+const TAB_BONDS := 9
+const TAB_CEMETERY := 10
 
 var _hq: Control = null
 var _step := 0
@@ -49,12 +50,47 @@ func _initialize() -> void:
 		{"do": _dismiss_modal_and_train, "shot": "hq_training"},
 		{"do": _open_intel, "shot": "hq_intel"},
 		{"do": _open_standing_work, "shot": "hq_standing_work"},
+		{"do": _raise_incident, "shot": "hq_incident"},
+		{"do": _raise_field_event, "shot": "hq_field_event"},
+		{"do": _take_field_decision, "shot": "hq_field_event_outcome"},
+		{"do": _close_field_decision, "shot": "hq_field_abort_debrief"},
 		{"do": _run_until_losses, "shot": "hq_cemetery"},
 		{"do": func(): _hq._show_tab(TAB_ROSTER), "shot": "hq_roster_career"},
 		{"do": func(): _hq._show_tab(TAB_BASE), "shot": "hq_base"},
 		{"do": _open_stocked_market, "shot": "hq_market"},
+		{"do": _open_workshop, "shot": "hq_workshop"},
 		{"do": _open_inventory_drawer, "shot": "hq_drawer_inventory"},
 	]
+
+
+## The workshop is only worth looking at with something on the bench and a set
+## of plans in hand — an empty one is three headings and a shrug.
+func _open_workshop() -> void:
+	# Whatever the field is doing, this shot is about the bench. A modal left
+	# open from an earlier step covers the middle third of the capture.
+	_hq.get_node("%IncidentModal").hide()
+	_hq.get_node("%AfterAction").hide()
+
+	var state: GameState = Game.campaign.state
+	state.diamonds += 40000
+	state.salvage += 180
+	Game.campaign.upgrade_facility(FacilityLibrary.QUARTERMASTER)
+	Game.campaign.buy_item(ItemLibrary.get_item(&"plate_carrier"))
+	for item in ItemLibrary.blueprints():
+		Game.campaign.learn_blueprint(item.id)
+
+	# One piece of kit in each state the screen has to render: worn enough to
+	# want the bench, past rebuilding, and already on it.
+	for instance in state.inventory:
+		if instance.item_id == &"battle_rifle":
+			instance.wear(58.0)
+	var spent := ItemInstance.create(&"suppressed_pistol", 14.0, 38.0)
+	state.inventory.append(spent)
+	var booked := ItemInstance.create(&"night_optics", 44.0)
+	state.inventory.append(booked)
+	Game.campaign.start_repair(booked)
+
+	_hq._show_tab(TAB_WORKSHOP)
 
 
 ## Give the shops something to sell, or the market screen only ever shows its
@@ -208,8 +244,86 @@ func _open_standing_work() -> void:
 	screen.refresh()
 
 
+## Force an incident onto the desk. Rolling for one would make this screenshot
+## depend on a 26% chance and a cooldown, so the modal is fed directly.
+func _raise_incident() -> void:
+	var incident := IncidentLibrary.roll(Game.campaign, Game.campaign.rng)
+	if incident.is_empty():
+		printerr("CHECK no incident fitted the company state")
+		return
+	_hq._incident_modal.show_incident(incident)
+
+
+## The other kind of decision: the squad is already out, and something has come
+## up that the briefing did not cover. Forced rather than rolled, for the same
+## reason as the incident above — the capture should not depend on a dice roll.
+func _raise_field_event() -> void:
+	_hq._incident_modal.hide()
+
+	# By this point a class has two people in it and the last debrief left others
+	# in the infirmary, so there is often nobody left to send. Patching them up
+	# keeps the capture from depending on what an earlier step happened to leave
+	# behind.
+	for op in Game.campaign.state.roster:
+		if op.status == GameEnums.OperatorStatus.INJURED:
+			op.days_unavailable = 0
+			op.status = GameEnums.OperatorStatus.AVAILABLE
+	_force_deployment()
+
+	var deployments: Array = Game.campaign.state.deployments
+	if deployments.is_empty():
+		printerr("CHECK nobody in the field to raise a situation with")
+		return
+
+	# A day in, so the card reads as the middle of a contract rather than its
+	# first hour — which is also the only time the decision is interesting. Never
+	# past the last day: the tick that resolves a contract is not one a decision
+	# can land on.
+	var deployment: Deployment = deployments[0]
+	if deployment.days_remaining > 1:
+		deployment.days_remaining -= 1
+
+	# Drawn until it is the one that can end the contract, because the two steps
+	# after this take that option and follow it through to the debrief — the
+	# longest chain of modals the game has, and the one worth capturing.
+	var event: Dictionary = {}
+	for attempt in 30:
+		event = FieldEventLibrary.roll(Game.campaign, deployment, Game.campaign.rng)
+		if event.get("id", &"") == &"bigger_than_briefed":
+			break
+	if event.is_empty():
+		printerr("CHECK no situation fitted the contract in flight")
+		return
+
+	# The dock counts who is in the field, and this step put somebody there
+	# behind its back.
+	_hq._refresh_all()
+	_hq._incident_modal.show_incident(event)
+
+
+## Take the last option on the card — on the situation forced above that is
+## calling the contract off — and capture the second beat, where the player finds
+## out whether the price they were quoted was the price they paid.
+func _take_field_decision() -> void:
+	var options: Array = _hq._incident_modal._options.get_children()
+	if options.is_empty():
+		printerr("CHECK the field card had no options to take")
+		return
+	(options[options.size() - 1] as Button).pressed.emit()
+
+
+## Close it, which is where the longest chain in the game runs: a decision ends a
+## contract, so the debrief for that contract has to arrive before anything else
+## the day had queued up.
+func _close_field_decision() -> void:
+	_hq._incident_modal._done_button.pressed.emit()
+	if not _hq._after_action.visible:
+		printerr("CHECK calling a contract off did not produce a debrief")
+
+
 func _dismiss_modal_and_train() -> void:
 	_hq._after_action.hide()
+	_hq._incident_modal.hide()
 	var state: GameState = Game.campaign.state
 
 	# Bring everyone home first, or every possible mentor is still in the field
@@ -235,6 +349,9 @@ func _dismiss_modal_and_train() -> void:
 ## Keep deploying and ending days until somebody is buried, so the Cemetery
 ## screen is shown with real entries rather than its empty state.
 func _run_until_losses() -> void:
+	# Whatever decision was on screen has been captured; leaving it up would put
+	# a modal over every screenshot after this one.
+	_hq._incident_modal.hide()
 	for i in 90:
 		if Game.campaign.state.cemetery.size() >= 2:
 			break
@@ -325,6 +442,7 @@ func _check_tabs_match() -> void:
 		"INTEL": TAB_INTEL,
 		"BASE": TAB_BASE,
 		"MARKET": TAB_MARKET,
+		"WORKSHOP": TAB_WORKSHOP,
 		"CLIENTS": TAB_CLIENTS,
 		"BONDS": TAB_BONDS,
 		"CEMETERY": TAB_CEMETERY,

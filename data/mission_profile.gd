@@ -26,9 +26,6 @@ extends Resource
 ## Score lost per operator beyond the tolerance band, going over.
 @export var oversize_penalty: float = 4.0
 
-## Score lost per operator short of the tolerance band.
-@export var undersize_penalty: float = 6.0
-
 ## Roles the job cannot be done properly without.
 @export var required_roles: Array[int] = []
 
@@ -137,7 +134,6 @@ static func defaults() -> Dictionary:
 		] as Array[PersonalityPref]
 	)
 	assault.oversize_penalty = 2.0
-	assault.undersize_penalty = 8.0
 	profiles[E.MissionType.ASSAULT] = assault
 
 	# The design doc's example: a big squad is a liability here.
@@ -157,7 +153,6 @@ static func defaults() -> Dictionary:
 		] as Array[PersonalityPref]
 	)
 	infiltration.oversize_penalty = 9.0
-	infiltration.undersize_penalty = 5.0
 	profiles[E.MissionType.INFILTRATION] = infiltration
 
 	# The other doc example: no medic, no rescue.
@@ -249,7 +244,6 @@ static func defaults() -> Dictionary:
 		] as Array[PersonalityPref]
 	)
 	assassination.oversize_penalty = 12.0
-	assassination.undersize_penalty = 4.0
 	assassination.missing_role_penalty = 16.0
 	profiles[E.MissionType.ASSASSINATION] = assassination
 

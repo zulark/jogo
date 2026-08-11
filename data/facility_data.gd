@@ -48,3 +48,27 @@ func effect_at(level: int) -> float:
 
 func is_maxed(level: int) -> bool:
 	return level >= max_level
+
+
+## What the next level buys, in this facility's own units.
+##
+## Effects are stored as raw magnitudes and every one reads differently — a tier
+## number, a flat bonus, a percentage saved. It lives here rather than on the
+## screen that draws it because two screens draw it now.
+func effect_text(level: int) -> String:
+	var value := effect_at(level)
+	match id:
+		FacilityLibrary.ARMOURY, FacilityLibrary.QUARTERMASTER:
+			return "tier %d" % int(value)
+		FacilityLibrary.WAREHOUSE:
+			return "+%d" % int(value)
+		FacilityLibrary.CANTEEN:
+			return "+%d/wk" % int(value)
+		FacilityLibrary.INTELLIGENCE:
+			return "+%.1f" % value
+		FacilityLibrary.ACADEMY:
+			# The Academy raises a number; the two below lower one. Defaulting
+			# everything to a minus sign made it read as a penalty.
+			return "+%d%%" % int(round(value * 100.0))
+		_:
+			return "-%d%%" % int(round(value * 100.0))

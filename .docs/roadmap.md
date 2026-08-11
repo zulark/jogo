@@ -430,17 +430,342 @@ description — the list was where you acted and the panel was decoration, the
 reverse of Contracts mode two clicks away. Selecting a job now fills the panel
 and the panel is where it gets staffed, candidates sorted by suitability.
 
+### v0.10 — the day became a decision — **DONE**
+
+**The problem this fixes.** A day was a turn, but on most days there was exactly
+one action worth taking — deploy or don't — and then End Day was pressed
+repeatedly while timers ran down. Contracts take 4–7 days, training a week,
+intel 3–5. The real play pattern was *one decision, then five presses of a
+button*. Standing work, intel and the market all added decisions **around** the
+loop rather than **inside** it.
+
+**Daily incidents** (`core/incident_library.gd`). Something lands on the desk on
+roughly a quarter of days, with a two-day cooldown, and stops the player. Three
+rules, and they are the design:
+
+- **Gated on something true about the company.** Nobody asks for leave who is
+  not unhappy; no informant turns up for a contract that is already cased; no
+  creditor calls unless the books are red. An incident that could fire on day
+  one of any save is weather, not consequence — the same standard `EventLibrary`
+  is held to.
+- **Every option states its price before it is taken.** The odds screen makes
+  that bargain with the player everywhere else; an incident that hid its cost
+  would be the one place it is broken. The harness asserts every option of every
+  incident carries a non-empty detail line.
+- **No free option.** Refusing leave costs morale, granting it costs days.
+  An incident where one choice dominates is a message box in a decision's
+  clothes.
+
+Eight to start: leave requests, barracks fights, rush jobs from a client who
+likes you, a walk-in recruit, an early discharge from the infirmary, an
+informant selling intel, worn kit, and a creditor at the door.
+
+The modal resolves in two beats — choose, then read what the choice did —
+because applying and closing in one motion makes it feel like a message box that
+happened to have buttons. Incidents queue *behind* the debrief: a squad coming
+home is the bigger news.
+
+**A base you can lose.** Facilities were a one-way ratchet — once bought, no
+decision left in them for the rest of the run, so money stopped mattering after
+the buying phase. Two consecutive weeks closing in debt now cuts the most
+expensive facility down a level, refunding 40% of that level's cost. One bad
+week is a warning with a week to trade out of it, which the harness asserts
+separately: a single unlucky contract must not wreck a run.
+
+### v0.11 — nothing happens without a reason — **DONE**
+
+The rule was always stated and only half kept. An audit found six of the eight
+bad events gated on *presence* rather than *cause*:
+
+| event | was | now |
+| --- | --- | --- |
+| theft | `inventory.size() > 0` | somebody unhappy enough to have a motive |
+| gear failure | `inventory.size() >= 2` | kit that was actually carried last week |
+| illness | `roster_size() >= 3` | worn-out people, or no infirmary |
+| client dispute | `not faction_standing.is_empty()` | a client already disappointed |
+| supply shortage | `reputation < 90` | `reputation < 35` — nobody deals with unknowns |
+| generator failure | has a base and money | a base running on a week's runway or less |
+
+"You own something" is not a reason. A player who loses a suppressed pistol out
+of a clear sky has no way to connect it to anything they did, and unattributable
+misfortune is noise rather than difficulty. The good events got the same
+treatment: salvage, caches and commendations now require a squad to have
+actually been out, and a "quiet week" cannot fire in a week somebody deployed.
+
+Two supporting changes made those conditions expressible:
+`GameState.deployed_last_week` (the activity counter is reset before events roll,
+so nothing could ask "was anyone in the field?"), plus `average_fatigue()` and
+`lowest_morale()`.
+
+**Every event that destroys kit now goes through `_spare_item()`** — only
+something nobody is carrying can be lost — **and every one names its cause in
+the text.** "X went missing overnight. Nobody saw anything, and morale here has
+been bad for weeks" is a consequence; "X went missing from storage overnight" is
+a dice roll.
+
+Guarded by three checks, because this is exactly the kind of rule that decays:
+a company with nothing wrong with it (content, rested, well regarded, liked by
+its clients, no rivalries, a doctor, out of debt, idle) must draw **no** bad
+event; a company that has earned trouble must be able to draw at least four; and
+kit somebody is carrying can never be taken. The first of those caught
+`generator_failure` still firing on a healthy company after the first pass.
+
+Incidents got an anti-repeat rule as well — a contented company legitimately has
+few it can draw, and without it a quiet month produced the same walk-in seven
+times, which reads as a bug rather than as quiet.
+
+### v0.12 — the contract became a decision too — **DONE**
+
+v0.10 fixed the *day*. This fixes the *contract*. Deploying was a real decision —
+the odds screen is the best thing in the game — and then four to seven days
+passed in which the player did nothing about the squad they had committed. The
+mission was a bet placed at the door and collected at the debrief.
+
+**Field events** (`core/field_event_library.gd`) are the squad calling in with
+something the briefing did not cover. Roughly one per contract (83% of contracts
+carry one, measured), never two, never on the day it resolves. Same three rules
+as the desk incidents, because they are the same promise:
+
+- **Gated on this contract and these people.** No patrol turns up in front of a
+  squad that did not come to be quiet; the job is only bigger than briefed if
+  the player never cased it; nobody argues on the radio who was not already
+  rivals; the ground only turns on people who came without kit for it. A
+  situation that could fire on any contract is weather.
+- **Every option quotes its price in the units the player already reads** —
+  "Odds 58% → 64%. Danger +6", "One more day in the field", "450 diamonds",
+  "standing +4". Not a hint, the number.
+- **No free option.** Time, danger, money, score, standing or somebody's
+  condition: each choice spends one, and the interesting shape is when the two
+  options spend *different* ones, because then there is no dominant answer.
+
+**The engineering rule that keeps it honest.** Nothing edits the odds. A
+decision appends a `Modifier` to the frozen report and the score is re-summed
+from the list — `MissionResolver.recompute()`, which `preview()` now ends with
+too, so there is one path. `chance_for()` was pulled out of it so an option can
+quote what it will cost from the *same curve* that will later produce it, rather
+than approximating. The harness reads the percentages back out of the button
+text and asserts both halves: the left number is the odds before the click, the
+right is the odds after, and the breakdown still sums to the squad score.
+
+**Two new verbs**, both of which existed nowhere before:
+
+- **Pull somebody out.** They walk to the extraction point and take no further
+  part. It costs *exactly* what they were contributing — summed off the
+  breakdown by operator id, not estimated — and it is the only thing in the game
+  that makes an operator unkillable for the rest of a contract. Worth it for
+  someone who should never have been sent.
+- **Call the contract off.** A failure and priced as one: part fee, reputation,
+  and the client told why. But it is not the same failure as being beaten —
+  measured over 200 contracts, breaking contact killed 37 against 244 for losing
+  outright. A contract that turns out worse than the brief is now survivable at
+  a price, instead of a bet that cannot be laid off.
+
+**The save trap, and a bug it turned up.** `Deployment.from_dict` rebuilds the
+report by re-running `preview()` against the live roster — it is not serialised,
+because it must point at the same operator objects the roster holds. Anything
+that changed the report *after* the preview therefore has to be replayed on
+load, or saving mid-contract silently undoes whatever the player decided out
+there. While fixing that: the same reload was already dropping `intel_bonus`,
+so a contract cased before a save came back uncased in the odds and nothing said
+so.
+
+**The modal queue is now re-entered rather than run once.** A decision can end a
+contract, so calling one off produces a debrief that has to be read before
+whatever was queued behind it — squads home first, then the week's news, then
+the decisions still waiting.
+
+Three small honesty fixes fell out of looking at the result:
+
+- A called-off contract said "CONTRACT FAILED · rolled 100 against 76%". No dice
+  were thrown; the player made the call. It reads "CONTRACT CALLED OFF · ended
+  from the field at 76%" now.
+- Against the 95% ceiling a −3 buys nothing, and "Odds 95% → 95%" reads as a
+  broken label rather than as the truth it is. It says "Odds hold at 95%".
+- Kills are scaled down on a withdrawal. They were leaving, not fighting
+  through, and the feed should not report a battle they declined.
+
+Eight situations to start. Three of them — a worn-out operator, two people at
+each other on the radio, and a moving target — need a company that has been
+played rather than a fresh one, which is exactly the point; the harness asserts
+that a cased contract staffed with rested, suitable people in benign country
+draws **nothing**, and that a blind one with tired mismatched rivals draws six.
+
+### v0.13 — the kit became a decision — **DONE**
+
+The last system in the design doc (section 4, Lojas): the Armoury and
+Quartermaster repair kit and build it from blueprints found as loot. It needed
+durability first, and durability needed the refactor the post-v1.0 notes below
+had already flagged as blocking everything — `state.inventory` was an array of
+item *ids*, which can say the company owns two carbines but never that one of
+them came back from the Kivu Border at 31%.
+
+**Kit is copies now, not types.** `ItemInstance` is one specific rifle: a uid, a
+condition, a ceiling, and a count of the contracts it has been on. Operators
+hold instances rather than ids, re-linked against the inventory on load the same
+way a deployment's squad is re-linked against the roster. Two people can no
+longer be issued the same rifle — a claim the harness could not previously even
+express. A save written before this opens fine: an array of plain ids comes back
+as new copies, and an operator's old `weapon_id` claims any unheld copy of that
+type, because taking an upgrading player's equipment off them is the worst
+possible way to find out the game gained a system.
+
+**The rule that stops durability being a chore.** Benefits scale with condition;
+drawbacks do not. A worn plate carrier still costs the stealth it always cost,
+still weighs what it always weighed, and stops less than it used to — so
+neglected kit is eventually *worse than carrying nothing*, and the odds screen
+says so in the units it already uses: "Battle Rifle (poor) · Combat +5" where it
+used to read +13. Below 20% an item is unserviceable: no upside, all downside,
+cannot be issued, and named on its own line in the breakdown, because a cost
+with no line to explain it is the one thing that screen promises never to do.
+
+**Wear traces to the contract.** Days in the field, the contract's danger, and
+whether it came off. Kit on the rack does not rot — an item that decays with the
+calendar would be a tax on time passing rather than a consequence of the work
+the player took, which is the standard every event and incident is held to. Kit
+carried by somebody killed is *recovered*, badly damaged, not lost: burying an
+operator is expensive enough, and a rifle outliving the person who earned its
+reputation is the whole point of the item histories this is groundwork for.
+
+**A bench is the scarce thing, not the money.** Each shop runs one bench per
+level. Booking a repair takes the item off whoever was carrying it and hands it
+straight back when the job lands, so the price is that they are without it for
+three days — not a chore for the player to remember. Kit in the field cannot be
+worked on at all; those people are three days away with it.
+
+Two prices, both stated on the button: diamonds, and days. A third is stated in
+the row beneath it — every repair takes a permanent slice off the item's
+ceiling, so a rebuilt rifle is never a new one. That slice is **proportional to
+the damage put right**, not flat per visit: a flat charge would make topping
+something up at 90% cost the same ceiling as rebuilding it from 20%, which makes
+careful maintenance strictly worse than neglect. That is a gotcha, not a
+decision. Priced by damage, the question goes back to being whether to spend the
+money and the bench at all.
+
+**Salvage closes the loop.** Kit past rebuilding is stripped for parts rather
+than being a dead row in the inventory, and parts are what the next thing gets
+built out of. One integer with one source and one sink — a second full resource
+economy would be exactly the inventory management this game keeps refusing.
+`gear_failure` now strips rather than destroys, for the same reason.
+
+**Blueprints are the reason to take the harder contract.** Four items nobody
+sells, found only on contracts above difficulty 52 that actually came off, known
+permanently once found. Each has a sharp edge, because kit that is simply better
+than the shop's is the end of a loadout decision rather than one: the Shop-Built
+SMG is quiet *and* good in a fight and jams (+4% harm); the Composite Harness
+buys most of a plate carrier's protection for a fraction of its stealth cost and
+less of its endurance; the Rebuilt Optics see in the dark and weigh like a brick.
+
+**Tuning, and the number that mattered.** The first pass at wear swung the
+twelve-week sim from **+6892 solvent to −4493 bankrupt**, and the repair bills
+were not the reason: weaker kit lowered the odds, which cost contracts, which
+killed people — the same single-entry death spiral v0.7 had to dig out of. Kit
+is a running cost, not a second lethality dial. Wear per day 3.1 → 1.7, repair
+at 26% of price rather than 42%. The run now closes at 6384 with the roster
+intact, average kit condition 61%, nothing unserviceable, and six jobs on the
+bench costing 686 over twelve weeks.
+
+Two of those were **agent artifacts** and worth separating, because the pattern
+is now familiar: the sim repaired anything below its ceiling, including rifles
+at 95% — burning a bench and a slice of ceiling for five points — and it only
+ever maintained *spare* kit, so the squad's own equipment rotted untouched while
+the rack stayed pristine. Both fixed. An agent that plays worse than a player
+reports a system as more expensive than it is, exactly as v0.7's sim reported
+the base layer as unreachable when it was merely expensive.
+
+**The v0.5 rule that got reversed.** Stock listed one row per item *type* with a
+count, because twelve identical carbines should be one line saying twelve. Twelve
+carbines at twelve different conditions are twelve things, and collapsing them
+hides the only fact on the screen worth acting on — so Stock is one row per copy
+now, worst first. The Market's owned column still groups by type, because that
+column answers "do we already own one of these" while looking at a price tag.
+
+`_worn_kit` was the one incident that had been describing this system before it
+existed ("past its best" against an item with no condition). It now acts on the
+genuinely worst thing on the rack, and what it sells is *speed* — a rush refit
+tonight without tying up a bench, priced above what the bench would charge.
+
+### v0.14 — the base became a place — **DONE**
+
+The HUB, in 3D, which is what the post-v1.0 note below always meant. The Base
+screen was eight rows in a list. The rows were correct and told you nothing: a
+company that has poured nine thousand diamonds into an Academy should be able to
+*see* it, and a base with an empty plot where the Infirmary belongs should look
+like one. The skyline is the balance sheet — building height is facility level,
+so a base that has been invested in is visibly taller than one that has not.
+
+**Thirteen plots, and five of them are not facilities.** The pad, the gate, the
+barracks, the front office and the memorial exist so the base is the whole of
+the company rather than most of it: contracts leave from the pad, people turn up
+at the gate, the dead are at the memorial. Every plot opens the screen it
+belongs to, so the base is now a complete second route through the game rather
+than a decorated version of one tab. The Psychologist opens nothing, because it
+has no screen — a greyed-out button under it would be a promise the game does
+not keep.
+
+**Every plot says what is happening inside it.** "1 recovering", "0 of 2 benches
+busy", "morale 68", "4 recruits waiting", "3 buried". That line is the whole
+difference between a model of a base and a base, and it is generated from the
+same function the side panel prints, so the label above a building and the panel
+beside it cannot disagree. Three of those lines went out in the first version
+reading "2 recoverings", "2 burieds" and "0 of 2 benchs busy" — `TextUtil.count`
+pluralises by adding an s, which is invisible in code and the only thing you see
+on screen.
+
+**The art seam is the point of the blockout.** `base_world.tscn` holds a
+`Marker3D` per plot and nothing else — drag them in the editor to rearrange the
+base. Drop a mesh scene named `Model` under a plot and it is used instead of the
+placeholder box; the collision, the label, the selection highlight and
+everything the panel knows go on working, because none of them depend on the
+geometry. The boxes exist to be thrown away.
+
+**Camera input is handled by the hub, not by the viewport's physics picking.**
+Left-drag orbits, right-drag pans along the ground rather than the screen, wheel
+zooms, and a click only selects if the cursor moved less than five pixels —
+otherwise a selection fires at the end of every camera swing. Picking is a
+manual raycast for the same reason: one owner for the press means a drag and a
+click can never both claim it.
+
+The old `base_screen.gd` is gone. Its weekly bill is the hub's default panel —
+nothing selected shows the company's books, because every upgrade adds a line to
+that sheet and the cost of expanding should never be on another screen — and its
+facility list survives underneath as a compact summary whose rows turn the camera
+to the building they name. A list and a base that never agree with each other
+would be worse than either alone.
+
+`Tab.CONTRACTS` is still the landing screen. The board is where the game is
+played and that felt like the user's call rather than a side effect of this
+work; it is one line in `hq.gd` (`_current_tab`) if the base should be what
+opens first.
+
+**The screenshot harness is seeded now.** It asserts as well as captures, and
+unseeded it started a random company — so the steps that need a squad in the
+field to photograph sometimes found none and printed a check failure that meant
+nothing but the dice. A visual check tool that cries wolf gets ignored, and one
+whose output changes run to run cannot be compared against yesterday's.
+
 ### Remaining for v1.0
 
-**Crafting and repair** — the last system in the design doc (section 4, Lojas):
-the Armoury and Quartermaster should repair items and craft from blueprints
-obtained as loot. Wants item durability first, which nothing models yet.
+Nothing. Every system in the design doc is in.
 
-### Later — the HUB
-The base as a navigable place rather than a menu: walk the facilities, see the
-roster living in them, MGSV Mother Base style. Wants the facilities to exist
-first, so it sits after v0.5. Worth designing the facility screens in v0.5 with
-this in mind — as places rather than list rows.
+### After v1.0 — agreed direction
+
+- ~~**A 3D map**: the base as a navigable place.~~ Landed in v0.14. What is left
+  is art: replace the placeholder boxes with models, and the operators living in
+  the base rather than being counted by a label above it.
+- **Items with histories**, Dwarf Fortress style: a maker, a chain of previous
+  owners, a confirmed kill count, the contracts it was carried on — and kit
+  handed down between operators, so a rifle outlives the person who earned its
+  reputation. **The refactor this was waiting on landed in v0.13**: the
+  inventory is `ItemInstance` copies now, each with a uid, and one of them
+  already counts the contracts it has been carried on. What is left is the
+  record — owners, kills, the maker — and a screen that reads it.
+
+### The HUB — **DONE in v0.14**
+The base as a navigable place rather than a menu, MGSV Mother Base style. Built
+in 3D rather than the 2D this section originally assumed. The half still
+outstanding is *"see the roster living in them"*: the facilities report what is
+happening inside as a line of text, and the operators themselves are not yet
+figures standing in the base. That wants art before it wants code.
 
 ### Testing pattern worth keeping
 Both harnesses now follow the same shape: `sim_campaign.gd` proves the loop does

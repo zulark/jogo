@@ -182,34 +182,60 @@ static func evolve_after_mission(
 
 ## Why these two ended up like this. Drawn from the contract they shared, so the
 ## roster reads as a history rather than a table of relationship values.
+##
+## A contract title is the name of a JOB, not of a place — "Nobody Was There",
+## "Deliver or Die" — so every template here has to frame it as one. "Got each
+## other out of Nobody Was There" reads as a location and falls apart; "on
+## Nobody Was There" and "how Nobody Was There went" both hold. The region is
+## available for the templates that genuinely want somewhere.
+##
+## GRAMMAR (see .docs/prose_style_guide.md): every line is a COMPLETE SENTENCE
+## carrying its own subject — "They", "One of them", "Neither of them" — capital
+## first letter, closing stop. The relationships screen prints this on its own
+## under the two portraits with no lead-in of its own, so subjectless fragments
+## ("Blamed each other for how X went.") read as a note somebody forgot to
+## finish, and a bare noun phrase ("A disagreement about an order given on X.")
+## reads as a caption for a picture that is not there.
+## Named placeholders rather than "%s": these pools mix two substitutions —
+## `{title}` is the name of the job, `{place}` is where it happened — and a
+## positional template makes the two impossible to tell apart at the point where
+## somebody is writing a new line. A template may use either, both or neither.
+const BOND_REASONS := {
+	GameEnums.BondType.ROMANCE: [
+		"Something started on the way back from {title}.",
+		"Nobody will say what happened after {title}.",
+		"Whatever this is, it started somewhere in {place}.",
+		"They came off {title} standing closer than they went in.",
+	],
+	GameEnums.BondType.FRIENDSHIP: [
+		"They got each other out alive on {title}.",
+		"They shared a very long night on {title}.",
+		"One of them carried the other out on {title}.",
+		"They went through {title} together and came back agreeing about it.",
+		"Neither of them talks about {title} to anybody else.",
+		"They were the last two moving on {title}.",
+	],
+	GameEnums.BondType.RIVALRY: [
+		"They blamed each other for how {title} went.",
+		"They argued over the take from {title} and never settled it.",
+		"One of them broke contact first on {title}. Both remember it differently.",
+		"They fell out over an order given on {title}.",
+		"One of them was somewhere else when it mattered on {title}.",
+		"They have not agreed on a single detail of {title} since.",
+	],
+}
+
+
 static func _reason_for_new_bond(
 	type: int,
 	report: MissionReport,
 	rng: RandomNumberGenerator
 ) -> String:
-	var title: String = report.mission.title
-	match type:
-		GameEnums.BondType.ROMANCE:
-			var romances := [
-				"Something started on the way back from %s.",
-				"Nobody will say what happened after %s.",
-			]
-			return romances[rng.randi() % romances.size()] % title
-		GameEnums.BondType.FRIENDSHIP:
-			var friendships := [
-				"Got each other out of %s.",
-				"Shared a very long night on %s.",
-				"One of them carried the other off %s.",
-			]
-			return friendships[rng.randi() % friendships.size()] % title
-		_:
-			var rivalries := [
-				"Blamed each other for how %s went.",
-				"Argued over the take from %s and never settled it.",
-				"One of them broke contact first on %s. Both remember it differently.",
-				"A disagreement about an order given on %s.",
-			]
-			return rivalries[rng.randi() % rivalries.size()] % title
+	var pool: Array = BOND_REASONS.get(type, BOND_REASONS[GameEnums.BondType.RIVALRY])
+	return str(pool[rng.randi() % pool.size()]).format({
+		"title": report.mission.title,
+		"place": report.mission.region_place(),
+	})
 
 
 static func _phrase(type: int) -> String:

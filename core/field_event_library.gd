@@ -114,6 +114,58 @@ static func catalogue() -> Array:
 			"build": func(c: Campaign, d: Deployment, rng: RandomNumberGenerator) -> Dictionary:
 				return _the_target_is_moving(c, d, rng),
 		},
+		{
+			"id": &"the_brief_has_changed",
+			"weight": 3,
+			# The client is on the radio wanting something else as well. Only a
+			# client who commissioned this can move the goalposts on it.
+			"requires": func(deployment: Deployment, _state: GameState) -> bool:
+				return deployment.mission.client() != null,
+			"build": func(c: Campaign, d: Deployment, rng: RandomNumberGenerator) -> Dictionary:
+				return _the_brief_has_changed(c, d, rng),
+		},
+		{
+			"id": &"people_in_the_way",
+			"weight": 3,
+			# Loud work in a place with people living in it. The gate is the noise:
+			# nobody has to make this call on a two-man reconnaissance.
+			"requires": func(deployment: Deployment, _state: GameState) -> bool:
+				return (
+					deployment.mission.mission_type in [
+						GameEnums.MissionType.ASSAULT,
+						GameEnums.MissionType.SABOTAGE,
+						GameEnums.MissionType.ESCORT,
+					]
+					and deployment.mission.client() != null),
+			"build": func(c: Campaign, d: Deployment, rng: RandomNumberGenerator) -> Dictionary:
+				return _people_in_the_way(c, d, rng),
+		},
+		{
+			"id": &"running_short",
+			"weight": 3,
+			# Long contracts in dangerous places burn through what the squad
+			# carried in. Both halves are the contract the player accepted.
+			"requires": func(deployment: Deployment, state: GameState) -> bool:
+				return (
+					deployment.mission.duration_days >= 5
+					and deployment.mission.risk >= 40.0
+					and state.diamonds > 800),
+			"build": func(c: Campaign, d: Deployment, rng: RandomNumberGenerator) -> Dictionary:
+				return _running_short(c, d, rng),
+		},
+		{
+			"id": &"extraction_is_burned",
+			"weight": 3,
+			# The way out stopped being the way out. Dangerous work only, and only
+			# once the squad is far enough in for it to be a problem.
+			"requires": func(deployment: Deployment, state: GameState) -> bool:
+				return (
+					deployment.mission.risk >= 55.0
+					and deployment.days_remaining <= maxi(1, deployment.mission.duration_days / 2)
+					and state.diamonds > 1200),
+			"build": func(c: Campaign, d: Deployment, rng: RandomNumberGenerator) -> Dictionary:
+				return _extraction_is_burned(c, d, rng),
+		},
 	]
 
 
@@ -242,8 +294,8 @@ static func _bigger_than_briefed(
 			},
 			{
 				"label": "Call the contract off",
-				"detail": "It ends now, unfinished: %d diamonds instead of the full fee, and %s is told why. Everyone breaks contact and comes home." % [
-					fee, deployment.mission.client_name()],
+				"detail": "It ends now, unfinished: %s instead of the full fee, and %s is told why. Everyone breaks contact and comes home." % [
+					TextUtil.count(fee, "diamond"), deployment.mission.client_name()],
 				"apply": func() -> String:
 					deployment.note("The company called the contract off rather than send them in against those numbers.")
 					campaign.abort_deployment(deployment)
@@ -261,15 +313,15 @@ static func _weather_closing_in(
 	var state := campaign.state
 	var region := deployment.mission.region()
 	var exposed := _uncovered(deployment)
-	var hazard_name: String = GameEnums.hazard_name(region.hazard).to_lower()
+	var hazard_phrase: String = GameEnums.hazard_phrase(region.hazard)
 	var relief: float = float(exposed.size()) * Balance.HAZARD_SCORE
 	var cost: int = 260 + 70 * exposed.size()
 	var danger := 8.0
 
 	return {
 		"title": "The ground is turning on them",
-		"line": "%s of them went out without kit for the %s, and it is getting worse rather than better. Something can be bought and flown up, or they can put their heads down and carry on. %s" % [
-			TextUtil.number_capitalised(exposed.size()), hazard_name,
+		"line": "%s of them went out with nothing for %s, and it is getting worse rather than better. Something can be bought and flown up, or they can put their heads down and carry on. %s" % [
+			TextUtil.number_capitalised(exposed.size()), hazard_phrase,
 			_standing_odds(deployment)],
 		"options": [
 			{
@@ -277,12 +329,13 @@ static func _weather_closing_in(
 				"detail": "Danger +%d, and the people without kit carry it." % int(danger),
 				"apply": func() -> String:
 					deployment.raise_risk(danger)
-					deployment.note("They worked through the %s without the kit for it." % hazard_name)
+					deployment.note("They worked through %s without the kit for it." % hazard_phrase)
 					return "They are carrying on. Nothing was bought.",
 			},
 			{
 				"label": "Buy what they need and get it to them",
-				"detail": "%d diamonds. %s, danger −6." % [cost, _odds(deployment, relief)],
+				"detail": "%s. %s, danger −6." % [
+					TextUtil.count(cost, "diamond"), _odds(deployment, relief)],
 				"apply": func() -> String:
 					if cost > state.diamonds:
 						return "There was not enough in the account to buy anything."
@@ -355,7 +408,7 @@ static func _rivals_on_the_radio(
 	var holds: float = clampf(leadership / 100.0, 0.2, 0.9)
 
 	return {
-		"title": "It is being had on the radio",
+		"title": "They are having it out on the radio",
 		"line": "%s and %s are arguing on an open net, in country, with the objective two hours away. %s is asking whether to intervene. %s" % [
 			one.display_label(), two.display_label(), leader.display_label(),
 			_standing_odds(deployment)],
@@ -372,8 +425,8 @@ static func _rivals_on_the_radio(
 			},
 			{
 				"label": "Let %s settle it" % leader.display_label(),
-				"detail": "%s's leadership holds it %d%% of the time: %s. It does not: %s, and both of them sour." % [
-					leader.display_label(), int(round(holds * 100.0)),
+				"detail": "%s leadership holds it %d%% of the time: %s. It does not: %s, and both of them sour." % [
+					TextUtil.possessive(leader.display_label()), int(round(holds * 100.0)),
 					_odds(deployment, settled), _odds(deployment, soured)],
 				"apply": func() -> String:
 					if rng.randf() < holds:
@@ -414,14 +467,14 @@ static func _a_man_with_a_route(
 		"options": [
 			{
 				"label": "Pay him",
-				"detail": "%d diamonds. %s." % [cost, _odds(deployment, worth)],
+				"detail": "%s. %s." % [TextUtil.count(cost, "diamond"), _odds(deployment, worth)],
 				"apply": func() -> String:
 					if cost > state.diamonds:
 						return "There was not enough in the account to pay him."
 					state.diamonds -= cost
 					deployment.apply_modifier("A local who knows the ground", worth)
-					deployment.note("A local was paid to put them on the back road into %s." % (
-						region.display_name if region != null else "the objective"))
+					deployment.note("A local was paid to put them on the back road through %s." % (
+						region.place() if region != null else "the valley"))
 					return "He took them in the back way. %s" % _now(deployment),
 			},
 			{
@@ -449,23 +502,22 @@ static func _crate_not_in_the_brief(
 
 	return {
 		"title": "Somebody else's cargo",
-		"line": "There is a crate on the objective that is not in anybody's brief. It is a %s, and it is heavy. %s" % [
-			found.display_name.to_lower(), _standing_odds(deployment)],
+		"line": "There is a crate on the objective that is not in anybody's brief. It holds %s, and it is heavy. %s" % [
+			found.indefinite(), _standing_odds(deployment)],
 		"options": [
 			{
 				"label": "Carry it out",
-				"detail": "%s — it is dead weight all the way to extraction. The %s comes home with them." % [
-					_odds(deployment, weight), found.display_name.to_lower()],
+				"detail": "%s — dead weight all the way to extraction. %s comes home with them." % [
+					_odds(deployment, weight), TextUtil.sentence_case(found.definite())],
 				"apply": func() -> String:
-					deployment.apply_modifier(
-						"Carrying the %s out" % found.display_name.to_lower(), weight)
+					deployment.apply_modifier("Carrying %s out" % found.definite(), weight)
 					deployment.carried_out.append(found.id)
-					deployment.note("They carried a %s out with them." % found.display_name.to_lower())
+					deployment.note("They carried %s away with them." % found.indefinite())
 					return "They are taking it. %s" % _now(deployment),
 			},
 			{
 				"label": "Burn it where it stands",
-				"detail": "Nothing to sell, nothing to carry. %s hears the shipment never arrived: standing +%d." % [
+				"detail": "Nothing to sell, nothing to carry. %s will hear that the shipment never arrived: standing +%d." % [
 					client.display_name, standing],
 				"apply": func() -> String:
 					state.adjust_standing(client.id, standing)
@@ -509,6 +561,166 @@ static func _the_target_is_moving(
 					deployment.extend(1)
 					deployment.note("They let the window go and waited for a better one.")
 					return "They are waiting. %s" % _now(deployment),
+			},
+		],
+	}
+
+
+static func _the_brief_has_changed(
+	campaign: Campaign,
+	deployment: Deployment,
+	rng: RandomNumberGenerator
+) -> Dictionary:
+	var state := campaign.state
+	var client := deployment.mission.client()
+	var harder := 7.0
+	var bonus: int = rng.randi_range(700, 2200)
+	var standing := 6
+
+	return {
+		"title": "%s wants one more thing" % client.display_name,
+		"line": "%s is on the radio with an addition to the brief — something they say was always implied and is plainly not. It can be done, and it will cost the squad time on the objective. %s" % [
+			client.display_name, _standing_odds(deployment)],
+		"options": [
+			{
+				"label": "Take the extra work",
+				"detail": "Difficulty rises to %d, and they pay %s for it. Standing +%d." % [
+					int(round(deployment.mission.difficulty + harder)),
+					TextUtil.count(bonus, "diamond"), standing],
+				"apply": func() -> String:
+					deployment.raise_difficulty(harder)
+					state.diamonds += bonus
+					state.adjust_standing(client.id, standing)
+					deployment.note("The client added to the brief mid-contract, and the squad took it on.")
+					return "They are doing both. %s" % _now(deployment),
+			},
+			{
+				"label": "The contract is the contract",
+				"detail": "Nothing changes on the ground. Standing -%d with %s." % [
+					standing, client.display_name],
+				"apply": func() -> String:
+					state.adjust_standing(client.id, -standing)
+					deployment.note("The client was reminded what they had actually paid for.")
+					return "%s was read the contract back to them." % client.display_name,
+			},
+		],
+	}
+
+
+static func _people_in_the_way(
+	campaign: Campaign,
+	deployment: Deployment,
+	_rng: RandomNumberGenerator
+) -> Dictionary:
+	var state := campaign.state
+	var client := deployment.mission.client()
+	var careful := -6.0
+	var standing := 7
+	var danger := 9.0
+
+	return {
+		"title": "There are people living on the objective",
+		"line": "The objective has families in it — nobody's fault, nobody's fighters, and directly in the way of how this was planned. They can be moved out first, or the plan can go ahead as written. %s" % (
+			_standing_odds(deployment)),
+		"options": [
+			{
+				"label": "Clear them out first",
+				"detail": "%s — it costs surprise and most of the night. %s will hear how it was handled: standing +%d." % [
+					_odds(deployment, careful), client.display_name, standing],
+				"apply": func() -> String:
+					deployment.apply_modifier("Moving civilians out first", careful)
+					state.adjust_standing(client.id, standing)
+					deployment.note("They spent the night clearing families off the objective before anything started.")
+					return "Everyone is out. %s" % _now(deployment),
+			},
+			{
+				"label": "Go ahead as planned",
+				"detail": "The odds do not move. Danger +%d, and %s will hear about it: standing -%d." % [
+					int(danger), client.display_name, standing],
+				"apply": func() -> String:
+					deployment.raise_risk(danger)
+					state.adjust_standing(client.id, -standing)
+					deployment.note("The plan went ahead with the objective still occupied.")
+					return "It went ahead as written.",
+			},
+		],
+	}
+
+
+static func _running_short(
+	campaign: Campaign,
+	deployment: Deployment,
+	rng: RandomNumberGenerator
+) -> Dictionary:
+	var state := campaign.state
+	var cost: int = rng.randi_range(600, 1200)
+	var resupplied := 5.0
+	var rationed := -6.0
+
+	return {
+		"title": "They are running short",
+		"line": "Ammunition, water and batteries are all on the same list, and the list is nearly done. A drop can be arranged through somebody local, or they can make what they have last. %s" % (
+			_standing_odds(deployment)),
+		"options": [
+			{
+				"label": "Arrange a drop",
+				"detail": "%s. %s." % [TextUtil.count(cost, "diamond"), _odds(deployment, resupplied)],
+				"apply": func() -> String:
+					if cost > state.diamonds:
+						return "There was not enough in the account to arrange anything."
+					state.diamonds -= cost
+					deployment.apply_modifier("Resupplied in the field", resupplied)
+					deployment.note("A resupply was bought locally and put in front of them overnight.")
+					return "It reached them. %s" % _now(deployment),
+			},
+			{
+				"label": "They make it last",
+				"detail": "%s. No money changes hands and nobody is happy about it." % (
+					_odds(deployment, rationed)),
+				"apply": func() -> String:
+					deployment.apply_modifier("Rationing ammunition and water", rationed)
+					for op in _active(deployment):
+						op.morale = maxi(0, op.morale - 4)
+					deployment.note("They finished the contract on what they carried in.")
+					return "They are making it last. %s" % _now(deployment),
+			},
+		],
+	}
+
+
+static func _extraction_is_burned(
+	campaign: Campaign,
+	deployment: Deployment,
+	rng: RandomNumberGenerator
+) -> Dictionary:
+	var state := campaign.state
+	var cost: int = rng.randi_range(900, 1800)
+	var danger := 11.0
+
+	return {
+		"title": "The way out is no longer the way out",
+		"line": "Somebody has put a checkpoint on the extraction route, and it is not moving. There is a boat that can be hired, or they can walk out the long way. %s" % (
+			_standing_odds(deployment)),
+		"options": [
+			{
+				"label": "Hire the boat",
+				"detail": "%s. They come out clean, and the contract lands on time." % (
+					TextUtil.count(cost, "diamond")),
+				"apply": func() -> String:
+					if cost > state.diamonds:
+						return "There was not enough in the account to hire anything."
+					state.diamonds -= cost
+					deployment.note("The extraction was bought rather than fought for.")
+					return "They are coming out by water. Nobody saw them go.",
+			},
+			{
+				"label": "Walk out the long way",
+				"detail": "One more day in the field, and danger +%d on the way." % int(danger),
+				"apply": func() -> String:
+					deployment.raise_risk(danger)
+					deployment.extend(1)
+					deployment.note("They walked out the long way rather than pay for a boat.")
+					return "They are walking. It costs them a day and a good deal of luck.",
 			},
 		],
 	}

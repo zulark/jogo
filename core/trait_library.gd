@@ -41,6 +41,12 @@ static func all() -> Dictionary:
 	var POS := E.TraitPolarity.POSITIVE
 	var NEG := E.TraitPolarity.NEGATIVE
 
+	# GRAMMAR (see .docs/prose_style_guide.md): a description is ONE sentence, a
+	# bare verb phrase in the third person with the operator as its unstated
+	# subject — "Does not flinch when it matters." The roster prints it directly
+	# under the trait name with no lead-in, so a description that supplies its own
+	# subject ("Something in the last contract did not come back with them.")
+	# reads as being about somebody else entirely.
 	var list: Array[TraitData] = [
 		# --- Positive -------------------------------------------------------
 		_make(&"steady_hands", "Steady Hands",
@@ -67,10 +73,10 @@ static func all() -> Dictionary:
 			"Freezes in tunnels and vents.", NEG, -14.0, 8.0,
 			{}, [E.MissionType.INFILTRATION, E.MissionType.SABOTAGE] as Array[int]),
 		_make(&"hothead", "Hothead",
-			"Opens fire early. Every time.", NEG, -9.0, 6.0,
+			"Opens fire early, every time.", NEG, -9.0, 6.0,
 			{E.Skill.STEALTH: -10}),
 		_make(&"shell_shocked", "Shell Shocked",
-			"Something in the last contract did not come back with them.", NEG, -11.0, 5.0,
+			"Has not been the same since the last contract.", NEG, -11.0, 5.0,
 			{E.Skill.LEADERSHIP: -8}),
 		_make(&"glory_hound", "Glory Hound",
 			"Takes the shot that looks good, not the one that works.", NEG, -7.0, 11.0),
@@ -116,7 +122,7 @@ static func fear_of(mission_type: int) -> TraitData:
 	var t := _make(
 		key,
 		"Fears %s" % type_name,
-		"Something went wrong on %s work and it stayed with them." % type_name.to_lower(),
+		"Will not talk about the last %s job, and does not want another." % type_name.to_lower(),
 		GameEnums.TraitPolarity.NEGATIVE,
 		-13.0,
 		9.0,

@@ -59,6 +59,43 @@ func display_name() -> String:
 	return item.display_name if item != null else "Unknown item"
 
 
+## The three prose forms, delegated so a sentence never has to know whether it is
+## holding a type or a copy. See ItemData for why the article is not guessed.
+func name_in_prose() -> String:
+	var item := data()
+	return item.name_in_prose() if item != null else "unknown item"
+
+
+func indefinite() -> String:
+	var item := data()
+	return item.indefinite() if item != null else "an unknown item"
+
+
+func definite() -> String:
+	var item := data()
+	return item.definite() if item != null else "the unknown item"
+
+
+func verb_is() -> String:
+	var item := data()
+	return item.verb_is() if item != null else "is"
+
+
+func verb_was() -> String:
+	var item := data()
+	return item.verb_was() if item != null else "was"
+
+
+func pronoun() -> String:
+	var item := data()
+	return item.pronoun() if item != null else "it"
+
+
+func object_pronoun() -> String:
+	var item := data()
+	return item.object_pronoun() if item != null else "it"
+
+
 func slot() -> int:
 	var item := data()
 	return item.slot if item != null else ItemData.Slot.WEAPON

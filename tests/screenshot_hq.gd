@@ -13,6 +13,13 @@ const OUT_DIR := "res://.screenshots"
 const WINDOW_SIZE := Vector2i(1280, 820)
 const SETTLE := 3
 
+## Seeded, because this harness asserts as well as captures. Unseeded it started
+## a random company, so the steps that need a squad in the field to photograph
+## sometimes found none and printed a check failure that meant nothing but the
+## dice. A visual check tool that cries wolf gets ignored, and one whose output
+## changes run to run cannot be compared against yesterday's.
+const SEED := 20260810
+
 ## Mirrors hq.gd's Tab enum. Duplicated rather than reached through the instance
 ## because a script-level enum is not addressable from an untyped node handle.
 ##
@@ -56,11 +63,36 @@ func _initialize() -> void:
 		{"do": _close_field_decision, "shot": "hq_field_abort_debrief"},
 		{"do": _run_until_losses, "shot": "hq_cemetery"},
 		{"do": func(): _hq._show_tab(TAB_ROSTER), "shot": "hq_roster_career"},
-		{"do": func(): _hq._show_tab(TAB_BASE), "shot": "hq_base"},
+		{"do": _open_hub, "shot": "hq_base"},
+		{"do": _select_a_facility, "shot": "hq_base_facility"},
 		{"do": _open_stocked_market, "shot": "hq_market"},
 		{"do": _open_workshop, "shot": "hq_workshop"},
 		{"do": _open_inventory_drawer, "shot": "hq_drawer_inventory"},
 	]
+
+
+## A base worth photographing: some of it built, some of it still an empty plot,
+## because "the skyline is the balance sheet" is only true if both show.
+func _open_hub() -> void:
+	_hq.get_node("%IncidentModal").hide()
+	_hq.get_node("%AfterAction").hide()
+
+	var state: GameState = Game.campaign.state
+	state.diamonds += 60000
+	for id in [FacilityLibrary.INFIRMARY, FacilityLibrary.ACADEMY,
+			FacilityLibrary.CANTEEN, FacilityLibrary.ARMOURY]:
+		Game.campaign.upgrade_facility(id)
+	Game.campaign.upgrade_facility(FacilityLibrary.ACADEMY)
+	Game.campaign.upgrade_facility(FacilityLibrary.ACADEMY)
+	Game.campaign.upgrade_facility(FacilityLibrary.INFIRMARY)
+	_hq._show_tab(TAB_BASE)
+
+
+## And the panel for one of them, which is where the upgrade decision is taken.
+func _select_a_facility() -> void:
+	var hub = _hq._screen
+	if hub != null and hub.has_method("refresh"):
+		hub._world.select(&"academy")
 
 
 ## The workshop is only worth looking at with something on the bench and a set
@@ -112,6 +144,9 @@ func _process(_delta: float) -> bool:
 	if _frames == 1:
 		DisplayServer.window_set_size(WINDOW_SIZE)
 		root.size = WINDOW_SIZE
+		# Before the HQ comes up: its _ready calls Game.ensure_started(), which
+		# keeps whatever is already there.
+		Game.start_seeded(SEED)
 		var scene: PackedScene = load("res://ui/hq.tscn")
 		_hq = scene.instantiate()
 		root.add_child(_hq)

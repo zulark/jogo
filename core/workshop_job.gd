@@ -86,6 +86,18 @@ func label() -> String:
 	return "%s %s" % ["Building" if kind == Kind.CRAFT else "Repairing", display_name()]
 
 
+## The three prose forms of whatever is on the bench, so the week's news can name
+## it in a sentence instead of pasting a card label into one.
+func definite() -> String:
+	var item := target_item()
+	return item.definite() if item != null else "the item"
+
+
+func verb_is() -> String:
+	var item := target_item()
+	return item.verb_is() if item != null else "is"
+
+
 func to_dict() -> Dictionary:
 	return {
 		"kind": kind,

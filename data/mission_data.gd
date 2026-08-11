@@ -57,6 +57,13 @@ func region_name() -> String:
 	return RegionLibrary.region_name(region_id)
 
 
+## The place as it reads inside a sentence — "the Kunar Valley". Labels use
+## region_name(); prose uses this.
+func region_place() -> String:
+	var found := region()
+	return found.place() if found != null else "the region"
+
+
 func region() -> RegionData:
 	return RegionLibrary.get_region(region_id)
 

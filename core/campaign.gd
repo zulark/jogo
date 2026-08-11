@@ -525,7 +525,8 @@ func _roll_production() -> Array:
 		state.inventory.append(ItemInstance.create(made.id))
 		news.append({
 			"title": "%s surplus" % FacilityLibrary.get_facility(facility_id).display_name,
-			"line": "Turned out a spare %s this week. It will sell." % made.display_name,
+			"line": "The line turned out %s more than the company needs this week. It will sell." % (
+				made.indefinite()),
 			"good": true,
 		})
 	return news
@@ -748,8 +749,9 @@ func _tick_workshop() -> void:
 
 			_pending_news.append({
 				"title": "Back in service",
-				"line": "The %s came off the bench at %d%%.%s" % [
-					job.display_name().to_lower(), int(round(job.instance.condition)), returned],
+				"line": "%s came off the bench at %d%%.%s" % [
+					TextUtil.sentence_case(job.definite()),
+					int(round(job.instance.condition)), returned],
 				"good": true,
 			})
 		else:
@@ -761,16 +763,16 @@ func _tick_workshop() -> void:
 				job.days_remaining = 1
 				_pending_news.append({
 					"title": "Nowhere to put it",
-					"line": "The %s is finished and storage is full. It stays on the bench." % (
-						job.display_name().to_lower()),
+					"line": "%s %s finished and storage is full, so it stays on the bench." % [
+						TextUtil.sentence_case(job.definite()), job.verb_is()],
 					"good": false,
 				})
 				continue
 			state.inventory.append(ItemInstance.create(job.item_id))
 			_pending_news.append({
 				"title": "Built in-house",
-				"line": "The %s came off the bench. Nobody sells these." % (
-					job.display_name().to_lower()),
+				"line": "%s came off the bench. Nobody sells these." % (
+					TextUtil.sentence_case(job.definite())),
 				"good": true,
 			})
 
@@ -895,7 +897,9 @@ func _resolve(deployment: Deployment, withdrawal: bool = false) -> void:
 				op.status = GameEnums.OperatorStatus.DEAD
 				op.died_on_day = state.day
 				op.died_on_mission = report.mission.title
-				op.died_in_region = report.mission.region_name()
+				# Stored as it reads in a sentence — "the Kunar Valley" — because
+				# the only thing that ever prints it is the headstone.
+				op.died_in_region = report.mission.region_place()
 				state.roster.erase(op)
 				state.cemetery.append(op)
 				operator_died.emit(op)
@@ -974,9 +978,12 @@ func _award_saves(report: MissionReport) -> void:
 		medic.morale = mini(100, medic.morale + Balance.SAVE_MORALE)
 		op.morale = mini(100, op.morale + Balance.SAVED_MORALE)
 		report.saves[medic] = op
+		# Both names, because this reason is read off either operator's sheet and
+		# "kept them alive" is ambiguous from the medic's side.
 		Bonds.link(medic, op, GameEnums.BondType.FRIENDSHIP,
 			Balance.BOND_STRENGTH_GAIN,
-			"%s kept them alive on %s." % [medic.display_label(), report.mission.title])
+			"%s kept %s alive on %s." % [
+				medic.display_label(), op.display_label(), report.mission.title])
 		return
 
 
@@ -1009,8 +1016,8 @@ func _wear_kit(deployment: Deployment, report: MissionReport, dead: Array) -> vo
 			item.wear(base + (Balance.WEAR_ON_DEATH if killed else 0.0))
 			if was_serviceable and not item.is_serviceable():
 				report.kit_notes.append(
-					"%s is unserviceable. It needs the workshop before anyone carries it again."
-					% item.display_name())
+					"%s came back unserviceable, and cannot be issued to anybody until the workshop has had a look."
+					% TextUtil.sentence_case(item.definite()))
 
 		if not killed:
 			continue
@@ -1019,8 +1026,8 @@ func _wear_kit(deployment: Deployment, report: MissionReport, dead: Array) -> vo
 		# the headstone holding a rifle keeps one rule true everywhere: exactly
 		# one living operator can be carrying any given copy.
 		for item in op.equipment():
-			report.kit_notes.append("%s was recovered off %s, in the state you would expect." % [
-				item.display_name(), op.display_label()])
+			report.kit_notes.append("%s %s signed back in off %s, in the state you would expect." % [
+				TextUtil.sentence_case(item.definite()), item.verb_was(), op.display_label()])
 		op.weapon = null
 		op.gear = null
 
@@ -1154,7 +1161,9 @@ func _award_trophy(report: MissionReport) -> void:
 			killer = op
 
 	var trophy: String = "%s, %s — %s" % [
-		report.mission.target_name, report.mission.target_title, report.mission.region_name()]
+		report.mission.target_name,
+		TextUtil.with_article(report.mission.target_title),
+		report.mission.region_name()]
 	killer.trophies.append(trophy)
 	killer.morale = mini(100, killer.morale
 		+ Balance.TROPHY_MORALE_KILLER + Balance.TROPHY_MORALE_LEGEND)
@@ -1164,8 +1173,11 @@ func _award_trophy(report: MissionReport) -> void:
 			op.morale = mini(100, op.morale + Balance.TROPHY_MORALE_COMPANY)
 
 	state.reputation = clampi(state.reputation + Balance.TROPHY_REPUTATION, 0, 100)
-	report.trophy_line = "%s killed %s, %s." % [
-		killer.display_label(), report.mission.target_name, report.mission.target_title]
+	report.trophy_line = "%s killed %s, %s, in %s." % [
+		killer.display_label(),
+		report.mission.target_name,
+		TextUtil.with_article(report.mission.target_title),
+		report.mission.region_place()]
 
 
 ## What the client tells the next client. Failing costs more than succeeding

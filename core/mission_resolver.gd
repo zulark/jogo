@@ -202,11 +202,26 @@ static func preview(squad: Squad, mission: MissionData, intel_bonus: float = 0.0
 	_apply_region_terms(report, squad, mission)
 	_apply_client_terms(report, squad, mission)
 
+	# Kept on the report as well as spent on the breakdown, because casing a
+	# contract buys two separate things and roll() needs the second one. The
+	# score line below is the odds; report.intel_applied is the safety.
+	report.intel_applied = maxf(intel_bonus, 0.0)
+
 	if intel_bonus > 0.0:
 		report.add_modifier(
-			"Scouted by the Intelligence Centre",
+			"Scouted: the ground is known",
 			intel_bonus,
 			GameEnums.ModifierSource.COMPOSITION
+		)
+		# Said out loud and scored at nothing, because it is not score — it comes
+		# off the harm roll in roll(), and a benefit the player paid a week of
+		# somebody's time for cannot be one they have to infer from the casualty
+		# list afterwards.
+		report.add_modifier(
+			"Everyone goes in knowing where the patrols are (-%.0f%% harm)" % (
+				intel_bonus * Balance.INTEL_HARM_FACTOR),
+			0.0,
+			GameEnums.ModifierSource.CONDITION
 		)
 
 	# Being short-handed needs no penalty: the fixed denominator above already
@@ -358,7 +373,16 @@ static func _apply_client_terms(
 				)
 
 		FactionData.Preference.OVERWHELMING:
-			var over: int = count - Balance.CLIENT_OVERWHELMING_IDEAL
+			# Capped going up, uncapped going down: turning up short still
+			# disappoints them by however short you were, but past a couple of
+			# spare bodies they have seen the point and stacking more is no
+			# longer an argument. Uncapped, this was the only term in the game
+			# that paid for bodies without limit — eight operators on an assault
+			# contract cost -4 to squad size and earned +12 here — so a client
+			# who liked numbers turned composition into "bring everyone".
+			var over: int = mini(
+				count - Balance.CLIENT_OVERWHELMING_IDEAL,
+				Balance.CLIENT_OVERWHELMING_MAX_OVER)
 			var force: float = float(over) * Balance.CLIENT_OVERWHELMING_BONUS
 			# A line reading "+0.0" is noise; say nothing when there is nothing
 			# to say.
@@ -494,24 +518,35 @@ static func roll(
 		else int(round(float(report.mission.reward_diamonds) * Balance.FAILURE_REWARD_RATIO))
 	)
 
-	# A failed mission is where people die. Success still costs blood sometimes.
-	var danger: float = report.mission.risk
+	# How badly the day went, as a multiplier rather than a flat danger. It is
+	# applied to what is LEFT of the contract's danger after each operator's own
+	# skill, kit and intel have come off it — see FAILURE_DANGER_MULT for why the
+	# order is the whole point.
+	var outcome_mult := 1.0
 	if withdrawal:
-		danger *= Balance.WITHDRAWAL_DANGER_MULT
+		outcome_mult = Balance.WITHDRAWAL_DANGER_MULT
 	elif not report.success:
-		danger *= Balance.FAILURE_DANGER_MULT
+		outcome_mult = Balance.FAILURE_DANGER_MULT
 
 	# How much of the harm band is fatal, for THIS contract. A dangerous job that
 	# went wrong kills; a milk run that went wrong mostly does not. Breaking
 	# contact deliberately does not carry the failure share: the squad was
 	# leaving, not losing.
+	var has_medic: bool = report.squad.has_role(GameEnums.Role.MEDIC)
 	var death_share: float = (
 		Balance.DEATH_SHARE
 		+ report.mission.risk * Balance.DEATH_SHARE_PER_RISK
 		+ (Balance.DEATH_SHARE_ON_FAILURE if not report.success and not withdrawal else 0.0)
 	)
+	if has_medic:
+		death_share *= (1.0 - Balance.MEDIC_DEATH_SHARE_RELIEF)
+	death_share = minf(death_share, Balance.DEATH_SHARE_MAX)
 
-	var has_medic: bool = report.squad.has_role(GameEnums.Role.MEDIC)
+	# What the squad knew going in, priced when the case finished. Comes off
+	# everyone's exposure, so a cased contract is a safer contract and not merely
+	# a likelier one — and the fee, the XP and the parts are all untouched,
+	# because none of this went anywhere near mission.difficulty.
+	var intel_relief: float = report.intel_applied * Balance.INTEL_HARM_FACTOR
 	var mission_type: int = report.mission.mission_type
 	var xp_base: float = float(
 		Balance.XP_ON_SUCCESS if report.success else Balance.XP_ON_FAILURE
@@ -530,19 +565,24 @@ static func roll(
 			report.xp_gained[op] = int(round(float(xp_award) * Balance.WITHDRAWN_XP_RATIO))
 			continue
 
-		var threat := danger
+		# EXPOSURE: how much of this contract's danger reaches this operator,
+		# before the day's outcome is known. Everything the player can do
+		# something about lands here — who they sent, what they gave them, how
+		# rested they are, and whether anybody looked at the place first.
+		var exposure: float = report.mission.risk
 
 		var survival: float = (
 			float(op.get_skill(GameEnums.Skill.ENDURANCE, mission_type)) * Balance.SURVIVAL_ENDURANCE_WEIGHT
 			+ float(op.get_skill(GameEnums.Skill.COMBAT, mission_type)) * Balance.SURVIVAL_COMBAT_WEIGHT
 		)
-		threat -= survival * Balance.ENDURANCE_MITIGATION
+		exposure -= survival * Balance.ENDURANCE_MITIGATION
+		exposure -= intel_relief
 
 		for t in op.active_traits(mission_type):
-			threat += t.danger_modifier
+			exposure += t.danger_modifier
 
 		# Armour is the main thing standing between an operator and the cemetery.
-		threat += op.equipment_danger()
+		exposure += op.equipment_danger()
 
 		# And the ground itself, for anyone who came without the kit for it.
 		var region := report.mission.region()
@@ -553,12 +593,17 @@ static func roll(
 					covered = true
 					break
 			if not covered:
-				threat += Balance.HAZARD_HARM
+				exposure += Balance.HAZARD_HARM
 
 		# Tired people get hurt. This is the other half of rotation pressure:
 		# running a squad into the ground does not just lower the odds, it
 		# raises the body count.
-		threat += Balance.FATIGUE_HARM_MAX * (float(op.fatigue) / 100.0)
+		exposure += Balance.FATIGUE_HARM_MAX * (float(op.fatigue) / 100.0)
+
+		# Only now does the day's outcome multiply it. An operator who was
+		# prepared for this contract is prepared for it going wrong, which is the
+		# whole reason preparing for it is a decision.
+		var threat: float = maxf(exposure, 0.0) * outcome_mult
 
 		if has_medic:
 			threat *= (1.0 - Balance.MEDIC_HARM_REDUCTION)
@@ -596,25 +641,112 @@ static func roll(
 ## lifetime record, and the reputation of the people who rack them up. The count
 ## follows combat skill and how loud the contract was, so a marksman on an
 ## assault comes back with a tally and a scout on a recon mostly does not.
+## One entry is one person. A "patrol pair" or a "machine-gun team" counted as a
+## single confirmed kill made the feed contradict its own tally — five lines
+## under a heading that said nine — so every kind here is one body. "A patrol
+## element" was exactly that mistake and is gone.
+##
+## GRAMMAR (see .docs/prose_style_guide.md): a singular INDEFINITE noun phrase
+## carrying its own article, lower case, no closing stop, no comma. Indefinite
+## because the feed lists strangers: "the last man standing" claimed a fact about
+## the whole engagement that nothing here computes, and printed twice in the same
+## feed the moment an operator got two kills.
 const _ENEMY_KINDS := [
-	"a sentry", "a machine-gun team", "a runner", "a technical crew",
+	"a sentry", "a machine gunner", "a runner", "a gunner on a technical",
 	"a squad leader", "a spotter", "a driver", "a radio operator",
-	"a patrol pair", "a guard on the wire",
+	"a man on the wire", "a lookout on the roof", "an officer",
+	"a courier", "a man at the gate", "a rifleman in the treeline",
+	"a radioman calling for fire", "a forward observer",
+	"a designated marksman", "a mortar crewman",
+	"a man left holding the position", "a point man", "a straggler",
+	"a heavy weapons operator", "a combat medic", "an entrenched shooter",
 ]
 
 ## How a kill reads depends on what they were carrying. A marksman rifle does
 ## not produce the same sentence as a suppressed pistol, and the feed is much
 ## better for saying so.
+##
+## Each entry carries its own range band, in metres. Reading "the knife · 102m"
+## in the feed is the kind of detail that stops a player believing any of it, and
+## a distance rolled off the weapon alone could never have been right — the same
+## rifle kills at 400 metres and at arm's length, and the sentence is what says
+## which one happened.
+##
+## GRAMMAR (see .docs/prose_style_guide.md): `[phrase, min_metres, max_metres]`,
+## where the phrase is an INDEFINITE noun phrase naming the means of the kill —
+## a countable head takes "a"/"an", a mass or plural head takes no determiner at
+## all, and nothing here ever takes "the". No finite verb, no comma, no stop.
+## "Suppressive fire that found a mark" and "a burst that actually worked" hung a
+## clause off the noun and read as half a sentence dropped into a table cell.
 const _METHODS := {
-	&"marksman_rifle": ["single shot", "a shot through cover", "one round, no follow-up"],
-	&"battle_rifle": ["a short burst", "sustained fire", "two bursts"],
-	&"service_carbine": ["a controlled pair", "close-range fire", "a burst"],
-	&"suppressed_pistol": ["suppressed, close", "two rounds, quietly", "no noise at all"],
-	&"prototype_smg": ["a very fast burst", "nine rounds in under a second"],
-	&"breaching_kit": ["a shaped charge", "the wall came down on them"],
+	&"marksman_rifle": [
+		["a single shot", 180, 900],
+		["a shot through cover", 150, 600],
+		["a single round with no follow-up", 220, 850],
+		["a clean headshot", 200, 1000],
+		["a high-angle shot", 300, 900],
+	],
+	&"battle_rifle": [
+		["a short burst", 40, 220],
+		["sustained fire", 60, 300],
+		["two bursts", 30, 180],
+		["a strike from the rifle butt", 1, 3],
+		["a stray round from suppressive fire", 50, 250],
+		["a heavy-calibre round through light armour", 20, 200],
+	],
+	&"service_carbine": [
+		["a controlled pair", 15, 90],
+		["rapid close-range fire", 4, 30],
+		["a tight burst", 20, 120],
+		["a double tap to centre mass", 10, 50],
+		["a snap shot on the move", 5, 25],
+	],
+	&"suppressed_pistol": [
+		["a suppressed shot at close range", 2, 12],
+		["two quiet rounds", 3, 15],
+		["a silent takedown", 1, 8],
+		["a shot from the shadows", 4, 15],
+		["a suppressed headshot", 5, 20],
+	],
+	&"prototype_smg": [
+		["a very fast burst", 5, 45],
+		["nine rounds in under a second", 4, 30],
+		["an unmanageable spray at close range", 10, 50],
+		["a continuous stream of fire", 5, 25],
+	],
+	&"breaching_kit": [
+		["a shaped-charge blast", 5, 25],
+		["spalling from a collapsed wall", 2, 15],
+		["concussive force from a breach", 1, 8],
+		["fragmentation from a doorframe", 3, 12],
+	],
+	&"shop_smg": [
+		["a rare clean burst", 5, 40],
+		["three rounds before a malfunction", 3, 20],
+		["erratic full-auto fire", 4, 25],
+		["a burst cut short by a jam", 2, 15],
+	],
+	&"shaped_charges": [
+		["a charge placed on a doorframe", 4, 20],
+		["shockwave from a close detonation", 2, 12],
+		["overpressure from a blast", 3, 15],
+		["directed shrapnel", 5, 30],
+	],
 }
 
-const _METHODS_DEFAULT := ["close quarters", "a struggle", "a rifle butt", "the knife"]
+## Standard issue is a sidearm and whatever is to hand, so nobody shot anybody
+## from four hundred metres and nobody swung a rifle they were never given — "a
+## lethal strike with a rifle buttstock" contradicted the very line above it.
+## Every one of these is arm's length by definition, and the band says so.
+const _METHODS_DEFAULT := [
+	["close-quarters combat", 1, 6],
+	["a hand-to-hand struggle", 1, 3],
+	["a chokehold", 1, 2],
+	["a knife thrust", 1, 2],
+	["a sidearm fired at contact range", 2, 10],
+	["blunt force trauma", 1, 2],
+	["a desperate point-blank struggle", 1, 3],
+]
 
 ## How much of a firefight each mission type actually is.
 const _CONTACT_WEIGHT := {
@@ -656,17 +788,16 @@ static func _roll_kills(
 	op.confirmed_kills += count
 
 	# One line per kill: who, what, how, and how far away. A tally is a number;
-	# this is a story the player can retell.
+	# this is a story the player can retell. The range comes off the method, not
+	# off the weapon, because "the knife · 102m" is a lie the player can see.
 	var methods: Array = _METHODS.get(op.weapon_item_id(), _METHODS_DEFAULT)
-	var long_range: bool = op.weapon_item_id() == &"marksman_rifle"
 
 	for i in count:
 		var kind: String = _ENEMY_KINDS[rng.randi() % _ENEMY_KINDS.size()]
-		var how: String = methods[rng.randi() % methods.size()]
-		var distance: int = (
-			rng.randi_range(180, 900) if long_range else rng.randi_range(4, 120))
+		var method: Array = methods[rng.randi() % methods.size()]
+		var distance: int = rng.randi_range(int(method[1]), int(method[2]))
 		report.kill_feed.append("%s  ·  %s  ·  %s  ·  %dm" % [
-			op.display_label(), kind, how, distance])
+			op.display_label(), kind, str(method[0]), distance])
 
 
 ## Preview and roll in one call.

@@ -143,6 +143,18 @@ static func role_name(role: int) -> String:
 	return Role.keys()[role].capitalize()
 
 
+## The role named as a PERSON rather than as a slot on a card. "Assault" is a
+## kind of work, so "as the squad's assault" is not a sentence — the person doing
+## it is the assaulter. Everything else already reads as a job title.
+const ROLE_PERSON_NAMES := {
+	Role.ASSAULT: "assaulter",
+}
+
+
+static func role_person_name(role: int) -> String:
+	return str(ROLE_PERSON_NAMES.get(role, role_name(role).to_lower()))
+
+
 ## Placeholder role icons. Glyphs rather than textures so there is nothing to
 ## import and nothing to license — swap ROLE_GLYPHS for a texture lookup when
 ## there is art and every caller stays the same.
@@ -226,3 +238,32 @@ static func bond_name(bond: int) -> String:
 
 static func hazard_name(hazard: int) -> String:
 	return Hazard.keys()[hazard].capitalize()
+
+
+## What the ground is actually doing, as it reads inside a sentence. The enum key
+## is a label — "Infection", "Altitude" — and dropping it into prose produced
+## "without kit for the infection", which is not a thing anybody says.
+const HAZARD_PHRASES := {
+	Hazard.INFECTION: "the wet",
+	Hazard.HEAT: "the heat",
+	Hazard.COLD: "the cold",
+	Hazard.ALTITUDE: "the altitude",
+}
+
+
+static func hazard_phrase(hazard: int) -> String:
+	return str(HAZARD_PHRASES.get(hazard, "the ground"))
+
+
+## The hazard as an adjective for the ground itself, for "<X> country." The enum
+## key does not work there — "Infection country" is not a description of anywhere.
+const HAZARD_COUNTRY := {
+	Hazard.INFECTION: "Wet, feverish",
+	Hazard.HEAT: "Open, baking",
+	Hazard.COLD: "Freezing",
+	Hazard.ALTITUDE: "Thin-air",
+}
+
+
+static func hazard_country(hazard: int) -> String:
+	return str(HAZARD_COUNTRY.get(hazard, "Hard"))

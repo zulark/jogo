@@ -16,7 +16,7 @@ const CONTRACTS_SCENE := preload("res://ui/contracts_screen.tscn")
 const RECRUITS_SCENE := preload("res://ui/recruits_screen.tscn")
 const TRAINING_SCENE := preload("res://ui/training_screen.tscn")
 const INTEL_SCENE := preload("res://ui/intel_screen.tscn")
-const BASE_SCENE := preload("res://ui/base_screen.tscn")
+const BASE_SCENE := preload("res://ui/base_hub.tscn")
 const MARKET_SCENE := preload("res://ui/market_screen.tscn")
 const WORKSHOP_SCENE := preload("res://ui/workshop_screen.tscn")
 const CLIENTS_SCENE := preload("res://ui/clients_screen.tscn")
@@ -172,8 +172,13 @@ func _show_tab(tab: int) -> void:
 			screen.roster_changed.connect(_on_company_changed)
 			_swap_screen(screen)
 		Tab.BASE:
-			var screen := BASE_SCENE.instantiate() as BaseScreen
+			var screen := BASE_SCENE.instantiate() as BaseHub
 			screen.company_changed.connect(_on_company_changed)
+			# The hub is where navigation lives now: thirteen places, and the
+			# five that are not facilities exist so the base covers the whole
+			# company rather than most of it. It asks; the shell moves.
+			screen.open_tab_requested.connect(_show_tab)
+			screen.open_drawer_requested.connect(_open_dock_panel)
 			_swap_screen(screen)
 		Tab.MARKET:
 			var screen := MARKET_SCENE.instantiate() as MarketScreen
@@ -264,6 +269,19 @@ func _toggle_drawer(key: String, title: String, scene: PackedScene) -> void:
 	_drawer_title.text = title.to_upper()
 	_drawer.show()
 	_refresh_status_bar()
+
+
+## Open a dock panel by key from somewhere that is not the dock — the hub's
+## Infirmary and Warehouse both lead into one. Kept in terms of the same keys the
+## dock buttons use so there is one name per panel.
+func _open_dock_panel(key: String) -> void:
+	match key:
+		"stock":
+			if _open_drawer != "stock":
+				_toggle_drawer("stock", "Inventory", STOCK_SCENE)
+		"infirmary":
+			if _open_drawer != "infirmary":
+				_toggle_drawer("infirmary", "Infirmary", INFIRMARY_SCENE)
 
 
 func _close_drawer() -> void:

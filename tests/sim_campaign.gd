@@ -364,6 +364,7 @@ func _report(campaign: Campaign) -> void:
 		"OK" if _field_cap_respected(state) else "FAIL"])
 	print("  [check] somebody actually progressed: %s" % [
 		"OK" if _somebody_progressed(state) else "FAIL"])
+	_check_career_ceiling()
 	print("  [check] the dead kept their record: %s" % [
 		"OK" if _cemetery_records_intact(state) else "FAIL"])
 	print("  [check] bonds are mirrored on both operators: %s" % [
@@ -478,6 +479,51 @@ func _check_market() -> void:
 		"OK" if is_equal_approx(owned_but_unused, without) else "FAIL"])
 
 
+## Where a whole career of the same work actually leaves somebody.
+##
+## SKILL_FIELD_CEILING says 88 and for a long time nothing reached it. Field gain
+## is base * weight * headroom, and rounding that to an int every contract meant
+## practice stopped the moment a single contract was worth less than half a
+## point: the primary skill stalled in the low eighties, the secondary one at 70,
+## and a skill the job only brushed never moved off its starting value for the
+## whole run. None of it printed anything, so it read as an operator who had
+## peaked. This runs a scout through a hundred and twenty infiltration contracts
+## and asserts that the skills the work genuinely uses all keep climbing.
+func _check_career_ceiling() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = SEED + 31337
+
+	var op := OperatorFactory.create(rng, GameEnums.Role.SCOUT)
+	op.traits.clear()
+	for skill in GameEnums.Skill.values():
+		op.skills[skill] = 30
+
+	var profile: MissionProfile = MissionProfile.defaults()[GameEnums.MissionType.INFILTRATION]
+	for contract in 120:
+		Progression.grow_skills(op, profile, true, GameEnums.Role.SCOUT)
+
+	# The three skills infiltration weighs, primary through incidental.
+	var stealth := op.skill_progress(GameEnums.Skill.STEALTH)
+	var tech := op.skill_progress(GameEnums.Skill.TECH)
+	var combat := op.skill_progress(GameEnums.Skill.COMBAT)
+	print("  After 120 infiltration contracts: Stealth %d, Tech %d, Combat %d (ceiling %d)" % [
+		stealth, tech, combat, Balance.SKILL_FIELD_CEILING])
+	print("  [check] a career reaches the field ceiling it is promised: %s" % [
+		"OK" if stealth >= Balance.SKILL_FIELD_CEILING
+			and tech >= Balance.SKILL_FIELD_CEILING
+			and combat > 70 else "FAIL"])
+
+
+## The first region on the map whose ground tests the given skill. Asking the
+## library rather than naming a place is what keeps these checks alive across a
+## rename — see the terrain check below for what happens when they are not.
+func _region_testing(skill: int) -> StringName:
+	for id in RegionLibrary.ids():
+		if RegionLibrary.get_region(id).emphasis_skill == skill:
+			return id
+	return &""
+
+
 ## Regions, clients, scouting and events, each measured in isolation. The
 ## campaign run would happily report green while any of them did nothing.
 func _check_world() -> void:
@@ -497,19 +543,26 @@ func _check_world() -> void:
 		op.skills[GameEnums.Skill.TECH] = 10
 	squad.set_leader(state.roster[0])
 
+	# Looked up by what the ground TESTS rather than by name. The two ids were
+	# hardcoded, the regions were later renamed, and both lookups quietly started
+	# returning null — so the check compared a contract with no region against
+	# another contract with no region and reported the terrain layer working
+	# because 82.4 is not greater than 82.4. A balance check that cannot tell a
+	# renamed region from a broken one is worse than no check at all.
 	var mountains := MissionFactory.create(campaign.rng, GameEnums.MissionType.ASSAULT)
-	mountains.region_id = &"kunar_valley"      # tests Endurance
+	mountains.region_id = _region_testing(GameEnums.Skill.ENDURANCE)
 	mountains.difficulty = 60.0
 	var wired := MissionFactory.create(campaign.rng, GameEnums.MissionType.ASSAULT)
-	wired.region_id = &"angolan_coast"          # tests Tech
+	wired.region_id = _region_testing(GameEnums.Skill.TECH)
 	wired.difficulty = 60.0
 
+	var both_real: bool = mountains.region() != null and wired.region() != null
 	var in_mountains := campaign.preview_mission(squad, mountains).squad_score
 	var in_wired := campaign.preview_mission(squad, wired).squad_score
-	print("  Endurance squad in the mountains: %5.1f" % in_mountains)
-	print("  The same squad somewhere wired  : %5.1f" % in_wired)
+	print("  Endurance squad in %-14s: %5.1f" % [mountains.region_name(), in_mountains])
+	print("  The same squad in  %-14s: %5.1f" % [wired.region_name(), in_wired])
 	print("  [check] terrain rewards the right squad: %s" % [
-		"OK" if in_mountains > in_wired else "FAIL"])
+		"OK" if both_real and in_mountains > in_wired else "FAIL"])
 
 	var far := MissionFactory.create(campaign.rng, GameEnums.MissionType.RECON)
 	print("  [check] travel time is added to duration: %s" % [
@@ -953,8 +1006,15 @@ func _cemetery_records_intact(state: GameState) -> bool:
 ## Getting this wrong would silently take people out of circulation forever.
 func _no_orphaned_operators(state: GameState) -> bool:
 	for op in state.roster:
-		if op.status == GameEnums.OperatorStatus.ON_MISSION and not state.is_deployed(op):
-			return false
+		if op.status != GameEnums.OperatorStatus.ON_MISSION:
+			continue
+		# ON_MISSION covers every way of being away from base, not just a
+		# contract: standing work and intel teams set it too. Checking only
+		# deployments called a perfectly healthy detachment an orphan, and which
+		# of the three the snapshot happened to catch was pure luck of the seed.
+		if state.is_deployed(op) or state.is_detached(op) or state.is_on_intel(op):
+			continue
+		return false
 	return true
 
 
@@ -1337,6 +1397,8 @@ func _check_intel(campaign: Campaign, squad: Squad) -> void:
 		return
 
 	var before := campaign.preview_mission(squad, target).squad_score
+	var fee_before := target.reward_diamonds
+	var difficulty_before := target.difficulty
 	var op_count := team.size()
 	var intel := campaign.assign_intel(target, team)
 	print("  [check] a team can be sent to case a contract: %s" % [
@@ -1397,6 +1459,60 @@ func _check_intel(campaign: Campaign, squad: Squad) -> void:
 		"OK" if target.scouted and target.intel_bonus > 0.0 and after > before else "FAIL"])
 	print("  [check] a cased contract cannot be cased again: %s" % [
 		"OK" if not campaign.can_start_intel(target, team) else "FAIL"])
+
+	# The other half of what a case buys, and the half that used to be missing:
+	# knowing the ground has to keep people alive, not just raise the odds. Rolled
+	# rather than reasoned about, because the point is what the dice actually do.
+	# Same seed both sides, so the only difference is the intel.
+	var harmed_blind := _harm_rate(target, squad, 0.0)
+	var harmed_cased := _harm_rate(target, squad, target.intel_bonus)
+	print("  [check] a cased contract hurts fewer people (%.0f%% → %.0f%%): %s" % [
+		harmed_blind * 100.0, harmed_cased * 100.0,
+		"OK" if harmed_cased < harmed_blind else "FAIL"])
+
+	# And it must not cost a diamond of the fee, nor move the difficulty on its
+	# own. This is the trap the whole design avoids: intel that "made the job
+	# easier" by writing a smaller number on the contract would silently cut the
+	# XP, the reputation and the salvage that all scale off that same number, so
+	# the player would pay a week of somebody's time to be paid less. The only
+	# thing allowed to raise it is the team being SPOTTED, which is a thing that
+	# happened rather than a discount.
+	var drift: float = target.difficulty - difficulty_before
+	var difficulty_honest: bool = (
+		is_zero_approx(drift)
+		or is_equal_approx(drift, Balance.INTEL_MISHAP_DIFFICULTY))
+	print("  [check] casing it costs neither fee nor reward scale (%d dia, %+.1f threat): %s" % [
+		target.reward_diamonds, drift,
+		"OK" if target.reward_diamonds == fee_before and difficulty_honest else "FAIL"])
+
+
+## Fraction of a squad harmed over many rolls of the same contract, at a given
+## intel level. The report is previewed once and re-rolled, so nothing but the
+## intel and the dice differ between two calls.
+func _harm_rate(mission: MissionData, squad: Squad, intel: float) -> float:
+	# roll() is the one resolver call that writes back to the operators — it
+	# credits confirmed kills — so a four-hundred-run measurement would leave the
+	# roster with a war record it never earned. Put it back afterwards.
+	var kills_before := {}
+	for op in squad.members():
+		kills_before[op] = op.confirmed_kills
+
+	var roller := RandomNumberGenerator.new()
+	roller.seed = SEED + 991
+	var runs := 400
+	var harmed := 0
+	var total := 0
+	for i in runs:
+		var report := MissionResolver.preview(squad, mission, intel)
+		MissionResolver.roll(report, roller)
+		for op in squad.members():
+			total += 1
+			if int(report.fates.get(op, GameEnums.Fate.UNHARMED)) != GameEnums.Fate.UNHARMED:
+				harmed += 1
+
+	for op in kills_before:
+		op.confirmed_kills = kills_before[op]
+	return float(harmed) / maxf(float(total), 1.0)
 
 
 ## Daily incidents, measured directly rather than waited for.
@@ -1599,7 +1715,10 @@ func _check_events_have_causes() -> void:
 		reachable.size(), "OK" if reachable.size() >= 4 else "FAIL"])
 
 	# Incidents follow the same rule for the ones that cost the player something.
-	var costly := ["worn_kit", "creditor", "barracks_argument", "leave_request"]
+	var costly := [
+		"worn_kit", "creditor", "barracks_argument", "leave_request",
+		"family_of_the_dead", "run_into_the_ground",
+	]
 	var idle_firing: Array = []
 	for entry in IncidentLibrary.catalogue():
 		if not costly.has(String(entry["id"])):

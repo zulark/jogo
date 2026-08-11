@@ -12,6 +12,13 @@ extends Resource
 @export var display_name: String = ""
 @export_multiline var description: String = ""
 
+## The article the place takes inside a sentence. Every region on the map is a
+## feature rather than a country — a valley, a basin, a coast — and English wants
+## "the" in front of all of them: "work in the Donbas Corridor", not "work in
+## Donbas Corridor". Stored rather than assumed so a region named after a city or
+## a country can set it to "" and read correctly too.
+@export var article: String = "the"
+
 ## Shifted onto every contract generated here, before grades are applied.
 @export var difficulty_shift: float = 0.0
 @export var risk_shift: float = 0.0
@@ -36,3 +43,16 @@ extends Resource
 ## Added to every contract's duration. Far places tie a squad up longer than the
 ## work alone would suggest.
 @export var travel_days: int = 0
+
+
+## The name as it reads inside a sentence: "the Kunar Valley". Labels, headers
+## and table cells want `display_name`; anything writing prose wants this.
+func place() -> String:
+	if article.is_empty():
+		return display_name
+	return "%s %s" % [article, display_name]
+
+
+## The same, opening a sentence.
+func place_capitalised() -> String:
+	return TextUtil.sentence_case(place())

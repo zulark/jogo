@@ -18,6 +18,15 @@ extends Resource
 ## Skill -> 0..MAX_SKILL_STARS. Mastery beyond a filled bar.
 @export var skill_stars: Dictionary = {}
 
+## Skill -> the part of a point earned but not yet banked, 0.0-1.0.
+##
+## Skills are whole numbers because the roster draws them as bars, but field
+## practice arrives in fractions and used to be rounded away every contract.
+## That quietly capped every skill far below SKILL_FIELD_CEILING and froze the
+## secondary ones outright — see Progression.add_skill_progress, which is the
+## only thing that reads or writes this.
+@export var skill_fraction: Dictionary = {}
+
 ## Personality axes, keys are GameEnums.PersonalityAxis, values 0-100 (50 neutral).
 @export var personality: Dictionary = {}
 
@@ -288,62 +297,213 @@ func initials() -> String:
 ## A few sentences about who this is, composed from what the game already knows.
 ## Generated rather than stored so it stays true as their career moves — the
 ## record writes itself, which is the whole appeal of a roster you get attached to.
+##
+## GRAMMAR (see .docs/prose_style_guide.md): every element of `parts` is a
+## COMPLETE SENTENCE with an explicit subject. TextUtil.sentences() only supplies
+## the stops, so a fragment stays a fragment — this used to emit "With this
+## company: 27 contracts completed, one of them gone wrong. 41 kills confirmed.
+## Brought on by Reyes." in the middle of a paragraph, and IncidentLibrary pastes
+## the whole thing straight after a sentence of its own, where a stack of
+## headings reads as a form rather than as a person.
 func resume() -> String:
 	var parts: Array = []
-	var total: int = missions_completed + prior_service
 
-	var seniority: String = "a new hire"
-	if total >= 25:
-		seniority = "one of the company's old hands"
-	elif total >= 10:
-		seniority = "an experienced hand"
-	elif total >= 3:
-		seniority = "still finding their feet"
-
-	# One proper opening sentence rather than three fragments jammed together.
-	parts.append("%s is %s %s %s, and %s" % [
+	parts.append("%s is %s %s, and %s." % [
 		display_label(),
-		TextUtil.article(demonym()),
-		demonym(),
+		TextUtil.with_article(demonym()),
 		GameEnums.rank_name(rank).to_lower(),
-		seniority,
+		_seniority(),
 	])
 
-	if prior_service > 0:
-		parts.append("They worked roughly %s elsewhere before signing on" % (
+	# "Roughly one contract" is not a quantity anybody estimates.
+	if prior_service == 1:
+		parts.append("They worked a single contract elsewhere before signing on.")
+	elif prior_service > 1:
+		parts.append("They worked roughly %s elsewhere before signing on." % (
 			TextUtil.spelled(prior_service, "contract")))
 
-	if missions_completed > 0 or missions_failed > 0:
-		var failures: String = (
-			"none gone wrong" if missions_failed == 0
-			else "%s gone wrong" % TextUtil.number(missions_failed))
-		parts.append("With this company: %s completed, %s" % [
-			TextUtil.count(missions_completed, "contract"), failures])
-	elif prior_service > 0:
-		parts.append("They have not yet worked a contract for this company")
+	parts.append(_company_record())
 
 	if confirmed_kills > 0:
-		parts.append("%s confirmed" % TextUtil.count(confirmed_kills, "kill"))
+		parts.append("They have %s confirmed." % TextUtil.spelled(confirmed_kills, "kill"))
 	if saves > 0:
-		parts.append("They have pulled %s out alive" % (
+		parts.append("They have pulled %s out alive." % (
 			TextUtil.spelled(saves, "squadmate")))
 
 	var best: Array = top_skills(1)
 	if not best.is_empty() and int(best[0]["value"]) > 0:
-		parts.append("Their strongest skill is %s, at %d" % [
+		parts.append("Their strongest skill is %s, at %d." % [
 			GameEnums.skill_name(best[0]["skill"]).to_lower(), int(best[0]["value"])])
 
 	if not trained_by.is_empty():
-		parts.append("Brought on by %s" % trained_by)
+		parts.append("They were brought on by %s." % trained_by)
 	if not trainees.is_empty():
-		parts.append("They have trained %s" % TextUtil.spelled(trainees.size(), "operator"))
+		parts.append("They have trained %s." % TextUtil.spelled(trainees.size(), "operator"))
 
 	for t in traits:
 		if t.polarity == GameEnums.TraitPolarity.NEGATIVE:
-			parts.append("Noted on their file: %s" % t.display_name.to_lower())
+			# A colon inside a sentence that has a subject and a verb, rather than
+			# the bare heading "Noted on their file: hothead" — the trait names are
+			# a mixture of adjectives ("claustrophobic"), nouns ("hothead") and
+			# verb phrases ("fears assault"), and this is the one frame all three
+			# read correctly after.
+			parts.append("Their file carries one note: %s." % t.display_name.to_lower())
 			break
 
+	parts.append(_reputation_line())
 	return TextUtil.sentences(parts)
+
+
+## Seniority describes the CAREER, not the tenure. Reading it off
+## missions_completed + prior_service and then calling the result "one of the
+## company's old hands" told the player a walk-in who had never worked a day here
+## was a veteran of the outfit — the sentence contradicted the sentence after it.
+## Anyone with service elsewhere is senior in the trade; only contracts run FOR
+## THIS COMPANY make them one of its own.
+##
+## GRAMMAR (see .docs/prose_style_guide.md): each entry completes the frame
+## "<label> is <a nationality rank>, and ___." — so it is a lower-case predicate
+## phrase with NO closing stop and, above all, NO COMMA. "No longer a liability,
+## and not yet an asset" put a second "and" into a sentence that already had one.
+const SENIORITY := {
+	# Contracts here outrank contracts anywhere else, so these are checked first.
+	"company_veteran": [
+		"one of the company's old hands",
+		"one of the names this company is known by",
+		"as much a fixture here as the building",
+	],
+	"company_regular": [
+		"an experienced hand here",
+		"somebody this company has learned to rely on",
+		"well established here by now",
+	],
+	"career_top": [
+		"as experienced as this trade gets",
+		"about as far into this trade as anybody gets",
+		"long enough in the work to have outlived most of it",
+	],
+	"career_senior": [
+		"well past the point of needing supervision",
+		"long since done being told anything twice",
+		"worth rather more than the company pays them",
+	],
+	"career_middle": [
+		"still finding their feet",
+		"past the worst of the learning",
+		"no longer a liability but not yet an asset",
+	],
+	"career_new": [
+		"new to the work",
+		"still new enough to be surprised by it",
+		"yet to find out what this job actually is",
+	],
+}
+
+
+func _seniority() -> String:
+	if missions_completed >= 25:
+		return _pick(1, SENIORITY["company_veteran"])
+	if missions_completed >= 10:
+		return _pick(2, SENIORITY["company_regular"])
+
+	# A contract that went wrong still taught them something, so failures count
+	# toward experience — leaving them out described somebody with a kill and a
+	# save to their name as "yet to find out what this job actually is".
+	var total: int = missions_completed + missions_failed + prior_service
+	if total >= 25:
+		return _pick(3, SENIORITY["career_top"])
+	if total >= 10:
+		return _pick(4, SENIORITY["career_senior"])
+	if total >= 3:
+		return _pick(5, SENIORITY["career_middle"])
+	return _pick(6, SENIORITY["career_new"])
+
+
+## What they have done FOR THIS COMPANY, as one sentence that cannot contradict
+## itself. "One contract completed, one of them gone wrong" said both that they
+## had run one contract and that a different one had failed, and "of them" had no
+## plural to point at.
+func _company_record() -> String:
+	var run: int = missions_completed + missions_failed
+	if run == 0:
+		# Only worth saying where there is service elsewhere to contrast it with.
+		# For a true walk-in it just repeats the closing line back at the player.
+		return "They have not yet worked a contract for this company." \
+			if prior_service > 0 else ""
+	if missions_failed == 0:
+		return "They have run %s for this company and not lost one." % (
+			TextUtil.spelled(run, "contract"))
+	if missions_completed == 0:
+		return "They have run %s for this company and finished none." % (
+			TextUtil.spelled(run, "contract"))
+	# run >= 2 here, so "of them" has its plural.
+	return "They have run %s for this company, %s of them lost." % [
+		TextUtil.spelled(run, "contract"), TextUtil.number(missions_failed)]
+
+
+## What the rest of the roster has decided about them.
+##
+## The one line here that is a story rather than a readout — and it is still not
+## invented: every pool is gated on a record the player watched accumulate, so
+## the sentence names its own cause. An operator with nothing on their file gets
+## no line at all rather than a flattering guess.
+## Each key names the record that earns it, so a line can never be drawn for
+## somebody it is not true of. GRAMMAR: a complete sentence, no placeholder.
+const REPUTATION := {
+	"killer": [
+		"The rest of the roster has stopped asking them how many.",
+		"People who have worked with them do not tell the stories in front of them.",
+		"Nobody here brings up the tally twice.",
+	],
+	"saver": [
+		"There are people on this roster who are only here because of them.",
+		"The infirmary knows them by name, and not as a patient.",
+		"More than one person here owes them a debt nobody wrote down.",
+	],
+	"instructor": [
+		"The newer hands here learned the job standing behind them.",
+		"They are who the new arrivals get handed to.",
+		"Nobody here teaches it the way they do.",
+	],
+	"unlucky": [
+		"Their name comes up when this company talks about bad luck.",
+		"They have been on the wrong contracts more often than not.",
+		"Somebody in accounts has noticed which jobs they were on.",
+	],
+	"untested": [
+		"Nobody here has seen them work yet.",
+		"There is nothing on their file but the signature.",
+		"The company is taking them on faith.",
+	],
+}
+
+
+func _reputation_line() -> String:
+	if confirmed_kills >= 25:
+		return _pick(7, REPUTATION["killer"])
+	if saves >= 3:
+		return _pick(8, REPUTATION["saver"])
+	if trainees.size() >= 2:
+		return _pick(9, REPUTATION["instructor"])
+	if missions_failed > missions_completed and missions_failed + missions_completed >= 3:
+		return _pick(10, REPUTATION["unlucky"])
+	if missions_completed + missions_failed + prior_service == 0:
+		return _pick(11, REPUTATION["untested"])
+	return ""
+
+
+## A choice that is stable for this operator.
+##
+## `resume()` runs every time the roster or the recruit list redraws, so the
+## variation has to be a function of WHO they are rather than of when it was
+## asked — prose that reshuffled on every repaint would not read as a person.
+## Derived from the id like portrait_color(), so it also survives a save/load.
+## `salt` keeps the pools independent: without it every pool would land on the
+## same index and an operator's whole résumé would be variant 2 throughout.
+func _pick(salt: int, pool: Array) -> String:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = String(id).hash() + salt * 7919
+	return str(pool[rng.randi() % pool.size()])
 
 
 # --- Serialisation -----------------------------------------------------------
@@ -362,6 +522,7 @@ func to_dict() -> Dictionary:
 		"callsign": callsign,
 		"skills": skills.duplicate(),
 		"skill_stars": skill_stars.duplicate(),
+		"skill_fraction": skill_fraction.duplicate(),
 		"personality": personality.duplicate(),
 		"nationality": String(nationality),
 		"trait_ids": trait_ids,
@@ -400,6 +561,7 @@ static func from_dict(data: Dictionary) -> OperatorData:
 	op.callsign = data.get("callsign", "")
 	op.skills = SaveUtil.to_int_keys(data.get("skills", {}))
 	op.skill_stars = SaveUtil.to_int_keys(data.get("skill_stars", {}))
+	op.skill_fraction = SaveUtil.to_int_keys_float(data.get("skill_fraction", {}))
 	op.personality = SaveUtil.to_int_keys(data.get("personality", {}))
 	op.nationality = StringName(data.get("nationality", ""))
 

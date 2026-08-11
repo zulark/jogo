@@ -153,7 +153,7 @@ func _make_row(instance: ItemInstance, state: GameState) -> Control:
 	if instance.max_condition < Balance.CONDITION_NEW:
 		notes.append("rebuilt — will not go past %d%%" % int(round(instance.max_condition)))
 	if item != null and item.counters_hazard != GameEnums.Hazard.NONE:
-		notes.append("cancels %s" % GameEnums.hazard_name(item.counters_hazard).to_lower())
+		notes.append("cancels %s" % GameEnums.hazard_phrase(item.counters_hazard))
 
 	if not notes.is_empty():
 		var line := UiStyle.text(

@@ -158,7 +158,7 @@ func _build_contract_detail() -> void:
 		# minimum width, and the panel took it out of the map beside it.
 		var hazard_note := UiStyle.text(
 			"%s country. Without the kit that cancels it, everyone you send is more likely to be hurt." % (
-				GameEnums.hazard_name(region_hazard.hazard)),
+				GameEnums.hazard_country(region_hazard.hazard)),
 			UiStyle.SIZE_SMALL, UiStyle.OCHRE)
 		hazard_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_side_box.add_child(hazard_note)

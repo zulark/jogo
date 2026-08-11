@@ -113,6 +113,15 @@ static func award_earned(
 		op.medals.append(String(id))
 		var medal := get_medal(id)
 		op.morale = mini(100, op.morale + int(medal.get("morale", 0)))
-		earned.append("Awarded the %s — %s" % [medal["name"], medal["note"]])
+		earned.append("Awarded %s — %s" % [_named(str(medal["name"])), medal["note"]])
 
 	return earned
+
+
+## "the Marksman's Cross", but "the Quiet Professional" rather than "the The
+## Quiet Professional". Awards whose names already carry their article are the
+## reason this exists at all.
+static func _named(medal_name: String) -> String:
+	if medal_name.begins_with("The ") or medal_name.begins_with("A "):
+		return medal_name.substr(0, 1).to_lower() + medal_name.substr(1)
+	return "the " + medal_name

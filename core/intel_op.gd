@@ -96,13 +96,17 @@ func resolve(state: GameState, rng: RandomNumberGenerator) -> Dictionary:
 	for op in operators:
 		names.append(op.display_label())
 
+	# An intel team is one, two or three people, so the verb has to agree with
+	# however many actually went — "Reyes were spotted" is not a sentence.
+	var was_were: String = "was" if names.size() == 1 else "were"
+
 	if noticed:
 		# Still scouted — they saw the place. It is just alert now, and the
 		# intel is worth less because half of what they learned has changed.
 		bonus *= 0.5
 		mission.difficulty += Balance.INTEL_MISHAP_DIFFICULTY
-		lines.append("%s were spotted casing %s. The ground is alert." % [
-			TextUtil.join_names(names), mission.region_name()])
+		lines.append("%s %s spotted casing %s. The ground is alert." % [
+			TextUtil.join_names(names), was_were, mission.region_place()])
 	else:
 		lines.append("%s cased %s without being seen." % [
 			TextUtil.join_names(names), mission.title])

@@ -103,6 +103,76 @@ static func catalogue() -> Array:
 			"requires": func(state: GameState) -> bool:
 				return state.deployed_last_week > 0 and _spare_item(state) != null,
 		},
+		{
+			"id": &"payroll_late",
+			"title": "Wages went out late",
+			"polarity": Polarity.BAD,
+			"weight": 3,
+			# The company cannot cover next week's bill, and everybody can read a
+			# noticeboard. Gated on the actual number rather than on debt, so it
+			# fires as a warning while there is still time to act on it.
+			"requires": func(state: GameState) -> bool:
+				return (
+					state.living_roster_size() >= 3
+					and state.diamonds < state.weekly_payroll()),
+		},
+		{
+			"id": &"poached",
+			"title": "Somebody else is hiring",
+			"polarity": Polarity.BAD,
+			"weight": 3,
+			# Reputation alone must NOT be enough: a company nobody has heard of
+			# has nobody worth poaching, but a company doing well and keeping its
+			# people happy has done nothing to deserve this. It takes both — a
+			# name worth ringing about, and somebody willing to take the call.
+			"requires": func(state: GameState) -> bool:
+				return state.reputation >= 40 and _poachable(state) != null,
+		},
+		{
+			"id": &"bad_lot",
+			"title": "A bad lot came through the armoury",
+			"polarity": Polarity.BAD,
+			"weight": 2,
+			# You cannot be sold a bad batch of anything without a shop to be sold
+			# it through, and it only shows up on kit that went out.
+			"requires": func(state: GameState) -> bool:
+				return (
+					state.deployed_last_week > 0
+					and state.facility_level(FacilityLibrary.ARMOURY) > 0
+					and not state.spare_instances().is_empty()),
+		},
+		{
+			"id": &"relapse",
+			"title": "Somebody went back to bed",
+			"polarity": Polarity.BAD,
+			"weight": 2,
+			# Recovering in a building with no infirmary in it. Both halves are
+			# things the player chose.
+			"requires": func(state: GameState) -> bool:
+				return (
+					state.injured_headcount() > 0
+					and state.facility_level(FacilityLibrary.INFIRMARY) == 0),
+		},
+		{
+			"id": &"shakedown",
+			"title": "Somebody official wants a word",
+			"polarity": Polarity.BAD,
+			"weight": 2,
+			# Money worth taking, and not enough standing for anybody to think
+			# twice about taking it.
+			"requires": func(state: GameState) -> bool:
+				return state.diamonds > 2500 and state.reputation < 45,
+		},
+		{
+			"id": &"feud_spreads",
+			"title": "People are taking sides",
+			"polarity": Polarity.BAD,
+			"weight": 2,
+			# A rivalry the player has left alone long enough for the rest of the
+			# roster to have opinions about it.
+			"requires": func(state: GameState) -> bool:
+				return _find_rivals(state).size() == 2 and state.living_roster_size() >= 4,
+		},
 
 		# --- Good -----------------------------------------------------------
 		{
@@ -174,6 +244,66 @@ static func catalogue() -> Array:
 			"requires": func(state: GameState) -> bool:
 				return _average_morale(state) < 80,
 		},
+		{
+			"id": &"client_bonus",
+			"title": "A client paid over the invoice",
+			"polarity": Polarity.GOOD,
+			"weight": 3,
+			# Someone who already thinks well of the company. Goodwill paying out
+			# in money is the whole reason standing is worth accumulating.
+			"requires": func(state: GameState) -> bool:
+				return _favourite_client(state) != &"",
+		},
+		{
+			"id": &"referral",
+			"title": "A client put your name forward",
+			"polarity": Polarity.GOOD,
+			"weight": 3,
+			"requires": func(state: GameState) -> bool:
+				return _favourite_client(state) != &"" and state.board.size() < 10,
+		},
+		{
+			"id": &"plans_traded",
+			"title": "Plans changed hands",
+			"polarity": Polarity.GOOD,
+			"weight": 2,
+			# Nobody hands drawings to a company they have not heard of, and a
+			# second copy of knowledge is nothing.
+			"requires": func(state: GameState) -> bool:
+				return state.reputation >= 50 and not _unknown_blueprints(state).is_empty(),
+		},
+		{
+			"id": &"parts_delivery",
+			"title": "A crate of parts turned up",
+			"polarity": Polarity.GOOD,
+			"weight": 3,
+			# There has to be a bench for parts to be any use, or this is a line of
+			# news about a number nobody can spend.
+			"requires": func(state: GameState) -> bool:
+				return (
+					state.facility_level(FacilityLibrary.ARMOURY) > 0
+					or state.facility_level(FacilityLibrary.QUARTERMASTER) > 0),
+		},
+		{
+			"id": &"ward_round",
+			"title": "The infirmary had a good week",
+			"polarity": Polarity.GOOD,
+			"weight": 3,
+			"requires": func(state: GameState) -> bool:
+				return (
+					state.injured_headcount() > 0
+					and state.facility_level(FacilityLibrary.INFIRMARY) >= 2),
+		},
+		{
+			"id": &"local_recruit",
+			"title": "Somebody's cousin needs work",
+			"polarity": Polarity.GOOD,
+			"weight": 2,
+			# Word of mouth through the roster itself, so it wants a roster with
+			# room in it and a company worth recommending.
+			"requires": func(state: GameState) -> bool:
+				return state.living_roster_size() < 9 and state.reputation >= 20,
+		},
 	]
 
 
@@ -198,6 +328,41 @@ static func _disgruntled_client(state: GameState) -> StringName:
 			lowest = standing
 			worst = id
 	return worst
+
+
+## The client who thinks most of the company, or empty if nobody has warmed to it
+## yet. Goodwill only pays out where goodwill was earned.
+static func _favourite_client(state: GameState) -> StringName:
+	var best: StringName = &""
+	var highest := 40
+	for id in state.faction_standing:
+		var standing: int = int(state.faction_standing[id])
+		if standing > highest:
+			highest = standing
+			best = id
+	return best
+
+
+## The most expensive person on the books who is also unhappy enough to listen —
+## the one another company would ring, and who would let them finish the sentence.
+static func _poachable(state: GameState) -> OperatorData:
+	var best: OperatorData = null
+	for op in state.roster:
+		if op.status == GameEnums.OperatorStatus.DEAD:
+			continue
+		if op.morale >= Balance.MORALE_NEUTRAL:
+			continue
+		if best == null or op.salary > best.salary:
+			best = op
+	return best
+
+
+static func _unknown_blueprints(state: GameState) -> Array[ItemData]:
+	var unknown: Array[ItemData] = []
+	for item in ItemLibrary.blueprints():
+		if not state.knows_blueprint(item.id):
+			unknown.append(item)
+	return unknown
 
 
 static func _average_morale(state: GameState) -> int:
@@ -278,7 +443,7 @@ static func apply(
 				return "A break-in at storage, but everything worth taking was in the field."
 			state.inventory.erase(stolen)
 			return "%s went missing overnight. Nobody saw anything, and morale here has been bad for weeks." % (
-				stolen.display_name())
+				TextUtil.sentence_case(stolen.definite()))
 
 		&"brawl":
 			var rivals := _find_rivals(state)
@@ -336,7 +501,7 @@ static func apply(
 			# roll's does, rather than as a free item off the shelf.
 			state.inventory.append(ItemInstance.create(found.id, rng.randf_range(
 				Balance.LOOT_CONDITION_MIN, Balance.LOOT_CONDITION_MAX)))
-			return "The last squad came back with a %s nobody is claiming." % found.display_name
+			return "The last squad came back with %s nobody is claiming." % found.indefinite()
 
 		&"commendation":
 			var bump: int = rng.randi_range(3, 7)
@@ -362,8 +527,9 @@ static func apply(
 			var parts: int = Workshop.scrap_value(doomed)
 			state.inventory.erase(doomed)
 			state.salvage += parts
-			return "%s came back from the last contract beyond repair. It was stripped for parts — %d of them." % [
-				doomed.display_name(), parts]
+			return "%s came back from the last contract beyond repair, and %s stripped down for %s." % [
+				TextUtil.sentence_case(doomed.definite()), doomed.verb_was(),
+				TextUtil.spelled(parts, "part")]
 
 		&"blackmarket_discount":
 			var windfall: int = rng.randi_range(900, 2600)
@@ -387,5 +553,127 @@ static func apply(
 			for op in state.roster:
 				op.morale = mini(100, op.morale + rng.randi_range(6, 12))
 			return "A quiet week and someone finally fixed the heating. Morale is up."
+
+		# --- Added in v0.14 -------------------------------------------------
+
+		&"payroll_late":
+			var short_by: int = maxi(1, state.weekly_payroll() - maxi(0, state.diamonds))
+			for op in state.roster:
+				op.morale = maxi(0, op.morale - rng.randi_range(4, 9))
+			return "Wages went out two days late and the noticeboard says why. Next week's bill is %s short as it stands." % (
+				TextUtil.count(short_by, "diamond"))
+
+		&"poached":
+			var wanted := _poachable(state)
+			if wanted == null:
+				return "Somebody was ringing around asking who was any good. Nobody answered."
+			var rise: int = maxi(10, int(round(float(wanted.salary) * 0.15)))
+			wanted.salary += rise
+			wanted.morale = maxi(0, wanted.morale - rng.randi_range(3, 7))
+			return "%s took a call from another company and did not take the job. Their price for staying is %s a week, up from %d." % [
+				wanted.display_label(),
+				TextUtil.count(wanted.salary, "diamond"),
+				wanted.salary - rise]
+
+		&"bad_lot":
+			var spares := state.spare_instances()
+			if spares.is_empty():
+				return "A bad batch came through, and every piece of it was still in the field."
+			var damaged := 0
+			for instance in spares:
+				if rng.randf() < 0.5:
+					continue
+				instance.wear(float(rng.randi_range(8, 18)))
+				damaged += 1
+			if damaged == 0:
+				return "A bad batch came through the armoury. This time none of it mattered."
+			return "A bad batch came through the armoury, and %s on the rack came back worse for it." % (
+				TextUtil.spelled(damaged, "piece"))
+
+		&"relapse":
+			var patient: OperatorData = null
+			for op in state.roster:
+				if op.status == GameEnums.OperatorStatus.INJURED:
+					patient = op
+					break
+			if patient == null:
+				return "Somebody was on their feet too early, and got away with it."
+			var extra: int = rng.randi_range(2, 4)
+			patient.days_unavailable += extra
+			patient.morale = maxi(0, patient.morale - 5)
+			return "%s was up too early and is back off their feet. Another %s on the list, and nowhere proper to spend them." % [
+				patient.display_label(), TextUtil.spelled(extra, "day")]
+
+		&"shakedown":
+			var taken: int = mini(state.diamonds, rng.randi_range(500, 1900))
+			state.diamonds -= taken
+			return "Somebody with a badge went through the company's paperwork and found what they came to find. %s, and no receipt." % (
+				TextUtil.count(taken, "diamond"))
+
+		&"feud_spreads":
+			var pair := _find_rivals(state)
+			if pair.size() < 2:
+				return "Whatever it was about, it seems to have gone quiet."
+			for op in state.roster:
+				op.morale = maxi(0, op.morale - rng.randi_range(2, 6))
+			return "The business between %s and %s has stopped being about the two of them. Everybody has an opinion now." % [
+				pair[0].display_label(), pair[1].display_label()]
+
+		&"client_bonus":
+			var patron := _favourite_client(state)
+			if patron == &"":
+				return "An invoice was paid on time, which is its own kind of news."
+			var bonus: int = rng.randi_range(800, 2600)
+			state.diamonds += bonus
+			return "%s settled the last invoice at more than it said, and did not explain. %s." % [
+				FactionLibrary.faction_name(patron), TextUtil.count(bonus, "diamond")]
+
+		&"referral":
+			var referrer := _favourite_client(state)
+			if referrer == &"":
+				return "Somebody asked after the company. Nothing came of it."
+			var taken_titles: Array = []
+			for existing in state.board:
+				taken_titles.append(existing.title)
+			var offered := MissionFactory.create(rng, -1, -1, taken_titles)
+			offered.client_id = referrer
+			offered.reward_diamonds = int(round(float(offered.reward_diamonds) * 1.2))
+			state.board.append(offered)
+			return "%s gave the company's name to somebody who needed it. %s is on the board, and it pays over the going rate." % [
+				FactionLibrary.faction_name(referrer), offered.title]
+
+		&"plans_traded":
+			var unknown := _unknown_blueprints(state)
+			if unknown.is_empty():
+				return "Somebody offered plans the workshop already has a copy of."
+			var plan: ItemData = unknown[rng.randi() % unknown.size()]
+			campaign.learn_blueprint(plan.id)
+			return "Somebody traded the company a set of drawings for %s. The workshop can build them now." % (
+				plan.name_in_prose())
+
+		&"parts_delivery":
+			var parts: int = rng.randi_range(25, 70)
+			state.salvage += parts
+			return "A crate nobody ordered turned up at the gate, full of things the bench can use. %s." % (
+				TextUtil.count(parts, "part"))
+
+		&"ward_round":
+			var mended := 0
+			for op in state.roster:
+				if op.status == GameEnums.OperatorStatus.INJURED and op.days_unavailable > 1:
+					op.days_unavailable -= 1
+					mended += 1
+			if mended == 0:
+				return "A quiet week on the ward. Nobody needed anything."
+			return "The infirmary had a good week. %s will be back a day earlier than the chart said." % (
+				TextUtil.spelled_capitalised(mended, "operator"))
+
+		&"local_recruit":
+			var referred := OperatorFactory.create(
+				rng, -1, OperatorFactory.Tier.ROOKIE, campaign._taken_callsigns())
+			referred.salary = int(float(referred.salary) * 0.85)
+			state.recruits.append(referred)
+			return "%s was sent along by somebody already on the books, and will work for less because of it." % (
+				referred.display_label())
 
 	return ""

@@ -61,6 +61,78 @@ func is_craftable() -> bool:
 	return source == Source.WORKSHOP
 
 
+## Kit whose name is grammatically plural, and the word you would count it in.
+## "A night optics" is not English; "a set of night optics" is, and "the night
+## optics ARE unserviceable" needs the verb to know.
+##
+## Listed rather than guessed from a trailing "s". A heuristic would have called
+## "Supplemental Oxygen" singular and countable, which it is neither.
+const PLURAL_NAMES := {
+	&"antimalarials": "case",
+	&"night_optics": "set",
+	&"rebuilt_optics": "set",
+	&"combat_stimulants": "box",
+	&"shaped_charges": "set",
+}
+
+## Mass nouns: singular verb, but never an article. "They went out without
+## supplemental oxygen."
+const MASS_NAMES: Array[StringName] = [
+	&"altitude_kit",
+]
+
+
+func is_plural() -> bool:
+	return PLURAL_NAMES.has(id)
+
+
+func takes_article() -> bool:
+	return not is_plural() and not MASS_NAMES.has(id)
+
+
+## The name as it reads inside a sentence, rather than as a label on a card.
+func name_in_prose() -> String:
+	return display_name.to_lower()
+
+
+## "a service carbine", "a set of night optics", "supplemental oxygen". Every
+## sentence that names an item goes through here — writing "a %s" by hand is what
+## produced "a Antimalarials & Field Antiseptics nobody is claiming".
+func indefinite() -> String:
+	var name_text := name_in_prose()
+	if is_plural():
+		var unit: String = str(PLURAL_NAMES[id])
+		return "%s %s of %s" % [TextUtil.article(unit), unit, name_text]
+	if not takes_article():
+		return name_text
+	return TextUtil.with_article(name_text)
+
+
+func definite() -> String:
+	return "the " + name_in_prose()
+
+
+## Verb agreement, for the handful of sentences that put one straight after the
+## name. "The night optics are unserviceable", "the carbine is".
+func verb_is() -> String:
+	return "are" if is_plural() else "is"
+
+
+func verb_was() -> String:
+	return "were" if is_plural() else "was"
+
+
+## Subject form — "they are on the rack" / "it is on the rack".
+func pronoun() -> String:
+	return "they" if is_plural() else "it"
+
+
+## Object form — "a decision on them" / "a decision on it". Kept separate because
+## using the subject pronoun in an object slot produces "a decision on they".
+func object_pronoun() -> String:
+	return "them" if is_plural() else "it"
+
+
 func slot_name() -> String:
 	return Slot.keys()[slot].capitalize()
 

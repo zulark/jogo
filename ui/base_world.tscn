@@ -1,0 +1,104 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://ui/base_world.gd" id="1_world"]
+
+[sub_resource type="Environment" id="Env_base"]
+background_mode = 1
+background_color = Color(0.0549, 0.0627, 0.0588, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.451, 0.494, 0.463, 1)
+ambient_light_energy = 0.6
+fog_enabled = true
+fog_light_color = Color(0.0549, 0.0627, 0.0588, 1)
+fog_density = 0.0035
+
+[sub_resource type="PlaneMesh" id="Mesh_ground"]
+size = Vector2(400, 400)
+
+[sub_resource type="StandardMaterial3D" id="Mat_ground"]
+albedo_color = Color(0.098, 0.109, 0.098, 1)
+roughness = 1.0
+metallic_specular = 0.15
+
+[sub_resource type="StandardMaterial3D" id="Mat_yard"]
+albedo_color = Color(0.141, 0.157, 0.145, 1)
+roughness = 1.0
+metallic_specular = 0.1
+
+[node name="BaseWorld" type="Node3D"]
+script = ExtResource("1_world")
+
+[node name="Environment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_base")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 30, 0)
+light_color = Color(1, 0.957, 0.878, 1)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh_ground")
+surface_material_override/0 = SubResource("Mat_ground")
+
+[node name="Yard" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.19, 0, 0, 0, 1, 0, 0, 0, 0.14, 0, 0.02, 0)
+mesh = SubResource("Mesh_ground")
+surface_material_override/0 = SubResource("Mat_yard")
+
+[node name="CameraRig" type="Node3D" parent="."]
+unique_name_in_owner = true
+
+[node name="Yaw" type="Node3D" parent="CameraRig"]
+unique_name_in_owner = true
+
+[node name="Pitch" type="Node3D" parent="CameraRig/Yaw"]
+unique_name_in_owner = true
+
+[node name="Camera" type="Camera3D" parent="CameraRig/Yaw/Pitch"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 58)
+fov = 50.0
+
+[node name="Plots" type="Node3D" parent="."]
+unique_name_in_owner = true
+
+[node name="infirmary" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19, 0, -11)
+
+[node name="psychologist" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6.5, 0, -11)
+
+[node name="canteen" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.5, 0, -11)
+
+[node name="academy" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 19, 0, -11)
+
+[node name="intelligence" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19, 0, 11)
+
+[node name="armoury" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6.5, 0, 11)
+
+[node name="quartermaster" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.5, 0, 11)
+
+[node name="warehouse" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 19, 0, 11)
+
+[node name="pad" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+
+[node name="barracks" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 31, 0, 0)
+
+[node name="office" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -31, 0, 0)
+
+[node name="memorial" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -25)
+
+[node name="gate" type="Marker3D" parent="Plots"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 25)

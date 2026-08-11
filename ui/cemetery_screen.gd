@@ -64,7 +64,7 @@ func _make_entry(op: OperatorData) -> Control:
 	header.add_child(UiStyle.stat("Day lost", str(op.died_on_day), UiStyle.RUST, 82))
 	box.add_child(header)
 
-	var circumstances: String = "Killed on %s, %s." % [op.died_on_mission, op.died_in_region]
+	var circumstances: String = "Killed on %s, in %s." % [op.died_on_mission, op.died_in_region]
 	if op.died_on_mission.is_empty():
 		circumstances = "Cause of death unrecorded."
 	box.add_child(UiStyle.text(circumstances, UiStyle.SIZE_SMALL, UiStyle.TEXT_2))
@@ -75,7 +75,7 @@ func _make_entry(op: OperatorData) -> Control:
 
 	if not op.trainees.is_empty():
 		box.add_child(UiStyle.text(
-			"Taught %s." % _list_names(op.trainees), UiStyle.SIZE_SMALL, UiStyle.STEEL))
+			"Taught %s." % TextUtil.join_names(op.trainees), UiStyle.SIZE_SMALL, UiStyle.STEEL))
 
 	# The dead keep their own book even after they are struck from everyone
 	# else's, so the wall can still say who they were close to.
@@ -109,10 +109,3 @@ func state_people() -> Array:
 	everyone.append_array(Game.campaign.state.roster)
 	everyone.append_array(Game.campaign.state.cemetery)
 	return everyone
-
-
-func _list_names(names: Array[String]) -> String:
-	if names.size() == 1:
-		return names[0]
-	var head := names.slice(0, names.size() - 1)
-	return "%s and %s" % [", ".join(head), names[names.size() - 1]]

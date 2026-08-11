@@ -49,6 +49,16 @@ const PERSONALITY_COST := 0.12
 # --- Casualties --------------------------------------------------------------
 
 ## A failed mission is this much more dangerous than a successful one.
+##
+## Applied to the operator's EXPOSURE — what is left of the contract's danger
+## after their own skill, kit and intel have been taken off — and not to the raw
+## danger. The difference matters more than it looks. Multiplying first and
+## subtracting after meant a veteran and a rookie both landed above the 95% clamp
+## on any failed hard contract, so the entire top half of the survival curve did
+## nothing exactly when the player needed it most: every investment in keeping
+## people alive was worth the most on quiet jobs and worth nothing on the
+## disasters. Mitigating first makes being good at surviving pay MORE when it
+## goes wrong, which is the only version of this that reads as fair.
 const FAILURE_DANGER_MULT := 1.7
 
 ## Fraction of an operator's survival score subtracted from the danger roll.
@@ -66,24 +76,49 @@ const SURVIVAL_COMBAT_WEIGHT := 0.4
 ## replacement's signing bonus it was quietly the largest line in the budget.
 ## Wounds absorbed the difference, so the pressure to rotate is unchanged — you
 ## still lose people from the roster constantly, you just get them back.
-## Raise this if you want the game harsher; it is the single lethality dial.
-## Base share of the harm band that is fatal. A flat 0.10 made the game far too
-## safe — a lone operator on a 5% contract came home traumatised rather than dead,
-## which is not a mercenary game.
-const DEATH_SHARE := 0.11
+##
+## Then DEATH_SHARE_PER_RISK and DEATH_SHARE_ON_FAILURE were bolted on beside it
+## and quietly undid the whole correction: with the base at 0.11, an ordinary
+## 45-risk contract already computed 0.227 and a failed hard one 0.42, both well
+## past the 0.18 this comment calls too lethal. The twelve-week harness buried
+## EIGHT of a seven-person company while winning eighteen of its twenty
+## contracts, which is the exact death spiral the design brief forbids.
+##
+## The rule the three constants below now follow: THE PLAYER CHOOSES RISK, THE
+## DICE CHOOSE SUCCESS, so severity is driven mostly by the number printed on the
+## board and only lightly by the coin flip. A milk run that goes wrong sends
+## people to the infirmary; a job the player was warned about buries them.
+const DEATH_SHARE := 0.03
 
 ## Added to the death share by how lethal the contract was. A 90-risk job that
 ## goes wrong should bury people; a 20-risk one mostly should not. This is what
-## makes the RISK column on the board mean something concrete.
-const DEATH_SHARE_PER_RISK := 0.0026
+## makes the RISK column on the board mean something concrete — and it is now the
+## DOMINANT term, so that column is the lethality dial the player actually reads.
+const DEATH_SHARE_PER_RISK := 0.0022
 
-## Added again when the contract actually failed. Losing is when people die.
-const DEATH_SHARE_ON_FAILURE := 0.14
+## Added again when the contract actually failed. Losing is when people die —
+## but the failure roll is the part the player does not control, so it leans on
+## the scales rather than doubling them.
+const DEATH_SHARE_ON_FAILURE := 0.06
+
+## Hard ceiling on the three terms above, after the medic. Nothing the dice can
+## arrange makes more than this fraction of a squad's casualties fatal: the
+## worst contract in the game losing a third of its wounded is a catastrophe, and
+## a catastrophe the player can still rebuild from is the difference between hard
+## and unfair.
+const DEATH_SHARE_MAX := 0.30
 
 const WOUND_SHARE := 0.55
 
 ## A medic in the squad reduces every operator's harm chance by this fraction.
 const MEDIC_HARM_REDUCTION := 0.25
+
+## And this fraction of what is left of the death share — which is the thing a
+## medic actually does. Stopping a wound from becoming a body is their whole job,
+## and until now the role bought a flat cut to getting hit at all, which is the
+## one thing a medic cannot help with. Together with the line above, taking a
+## medic is the clearest survivability decision on the squad screen.
+const MEDIC_DEATH_SHARE_RELIEF := 0.30
 
 const WOUND_DAYS_MIN := 4
 const WOUND_DAYS_MAX := 14
@@ -327,6 +362,13 @@ const CLIENT_DISCREET_IDEAL := 3
 const CLIENT_DISCREET_PENALTY := 5.0
 const CLIENT_OVERWHELMING_IDEAL := 4
 const CLIENT_OVERWHELMING_BONUS := 3.0
+
+## How far past their ideal a show of force keeps paying. Uncapped, this was the
+## one term in the game that rewarded stacking bodies without limit: on an
+## assault contract eight operators cost -4 to squad size and earned +12 here, so
+## the answer to a client who likes numbers was always "bring everyone", which is
+## the opposite of a composition decision.
+const CLIENT_OVERWHELMING_MAX_OVER := 2
 const CLIENT_EXPECTED_RANK := 2.0
 const CLIENT_RANK_FACTOR := 3.5
 
@@ -345,6 +387,25 @@ const SCOUT_BASE_DAYS := 4
 
 ## Score a scouted contract is worth, per point of Intelligence Centre effect.
 const SCOUT_BONUS_FACTOR := 1.0
+
+## Threat, in percentage points, taken off every operator on a cased contract,
+## per point of intel the case was worth.
+##
+## Intel deliberately does NOT touch mission.difficulty. Difficulty is what pays
+## the company — XP scales off it (XP_DIFFICULTY_FACTOR), so does reputation
+## (REPUTATION_DIFFICULTY_FACTOR) and so does salvage (SALVAGE_PER_DIFFICULTY) —
+## so a system that "made the job easier" by writing the number down would have
+## quietly cut the fee, the promotion and the parts for the privilege of knowing
+## what you were walking into. Casing a contract instead adds SCORE, which moves
+## the odds by exactly the same arithmetic through the logistic curve and leaves
+## every payout untouched.
+##
+## This is the other half, and the half that was missing: knowing where the
+## patrols are should keep people alive, not merely make the objective likelier.
+## At 0.75 a good team's case (~9 points) is worth about -7 threat to everyone
+## who goes in, which is two thirds of a plate carrier — a fair price for a week
+## of somebody's time, and never enough to make a dangerous contract safe.
+const INTEL_HARM_FACTOR := 0.75
 
 ## Charged up front, per level of the facility.
 const SCOUT_COST_PER_LEVEL := 220

@@ -43,50 +43,50 @@ static func all() -> Dictionary:
 
 	var S := GameEnums.Skill
 	var list: Array[RegionData] = [
-		_make(&"kunar_valley", "Kunar Valley",
-			"High ground, thin air, and everyone up there knows the paths better than you do.",
-			6.0, 8.0, S.ENDURANCE, "Mountainous — endurance decides who keeps up", 2, Vector2(0.685, 0.355), GameEnums.Hazard.ALTITUDE),
+        _make(&"korengal_valley", "Korengal Valley",
+            "Kunar Province, Afghanistan. High ground, thin air, and everyone up there knows the paths better than you do.",
+            6.0, 8.0, S.ENDURANCE, "Mountainous — endurance decides who keeps up", 2, Vector2(0.685, 0.355), GameEnums.Hazard.ALTITUDE),
 
-		_make(&"helmand_basin", "Helmand Basin",
-			"Flat, open and hot. Nothing to hide behind for a hundred kilometres.",
-			4.0, 10.0, S.COMBAT, "Open ground — firefights start at distance", 2, Vector2(0.660, 0.430), GameEnums.Hazard.HEAT),
+        _make(&"sangin_district", "Sangin District",
+            "Helmand Province, Afghanistan. Flat, open and hot. Nothing to hide behind for a hundred kilometres.",
+            4.0, 10.0, S.COMBAT, "Open ground — firefights start at distance", 2, Vector2(0.660, 0.430), GameEnums.Hazard.HEAT),
 
-		_make(&"angolan_coast", "Angolan Coast",
-			"Port towns and old colonial infrastructure, most of it still wired.",
-			-2.0, -4.0, S.TECH, "Wired and industrial — the doors are electronic", 1, Vector2(0.520, 0.700)),
+        _make(&"cabinda_enclave", "Cabinda Enclave",
+            "Angola, Southern Africa. Port towns and old colonial infrastructure, most of it still wired.",
+            -2.0, -4.0, S.TECH, "Wired and industrial — the doors are electronic", 1, Vector2(0.520, 0.700)),
 
-		_make(&"niger_delta", "Niger Delta",
-			"Creeks, pipelines and a hundred ways in if you know the water.",
-			2.0, 4.0, S.STEALTH, "Waterways — movement is quiet or not at all", 1, Vector2(0.470, 0.560), GameEnums.Hazard.INFECTION),
+        _make(&"warri_waterways", "Warri Waterways",
+            "Niger Delta, Nigeria. Creeks, pipelines and a hundred ways in if you know the water.",
+            2.0, 4.0, S.STEALTH, "Waterways — movement is quiet or not at all", 1, Vector2(0.470, 0.560), GameEnums.Hazard.INFECTION),
 
-		_make(&"kivu_border", "Kivu Border",
-			"Dense, wet forest. Casualties here are about what the ground does to people.",
-			3.0, 9.0, S.MEDICAL, "Jungle — infection kills more than gunfire", 2, Vector2(0.556, 0.625), GameEnums.Hazard.INFECTION),
+        _make(&"goma_outskirts", "Goma Outskirts",
+            "North Kivu, DR Congo. Dense, wet forest. Casualties here are about what the ground does to people.",
+            3.0, 9.0, S.MEDICAL, "Jungle — infection kills more than gunfire", 2, Vector2(0.556, 0.625), GameEnums.Hazard.INFECTION),
 
-		_make(&"sinai_flats", "Sinai Flats",
-			"Desert crossing with a smuggling economy older than any of the states involved.",
-			0.0, 2.0, S.ENDURANCE, "Desert crossing — heat wears squads down", 1, Vector2(0.575, 0.425), GameEnums.Hazard.HEAT),
+        _make(&"el_arish_route", "El Arish Route",
+            "North Sinai, Egypt. Desert crossing with a smuggling economy older than any of the states involved.",
+            0.0, 2.0, S.ENDURANCE, "Desert crossing — heat wears squads down", 1, Vector2(0.575, 0.425), GameEnums.Hazard.HEAT),
 
-		_make(&"donbas_corridor", "Donbas Corridor",
-			"Industrial ruins fought over so many times the maps stopped mattering.",
-			9.0, 12.0, S.COMBAT, "Contested ground — expect organised resistance", 1, Vector2(0.582, 0.268)),
+        _make(&"avdiivka_industrial", "Avdiivka Industrial Zone",
+            "Donetsk Oblast, Ukraine. Industrial ruins fought over so many times the maps stopped mattering.",
+            9.0, 12.0, S.COMBAT, "Contested ground — expect organised resistance", 1, Vector2(0.582, 0.268)),
 
-		_make(&"karelian_shelf", "Karelian Shelf",
-			"Forest and snow. Everything takes longer and shows up on thermal.",
-			5.0, 3.0, S.STEALTH, "Snow and thermal — cover is a fiction", 2, Vector2(0.575, 0.165), GameEnums.Hazard.COLD),
+        _make(&"pechenga_district", "Pechenga District",
+            "Murmansk Oblast, Russian Arctic. Forest and snow. Everything takes longer and shows up on thermal.",
+            5.0, 3.0, S.STEALTH, "Snow and thermal — cover is a fiction", 2, Vector2(0.575, 0.165), GameEnums.Hazard.COLD),
 
-		_make(&"balkan_reach", "Balkan Reach",
-			"Old towns, older grudges, and paperwork that can be bought.",
-			-3.0, -2.0, S.LEADERSHIP, "Urban and political — someone has to talk", 0, Vector2(0.520, 0.305)),
+        _make(&"mitrovica_bridge", "Mitrovica Sector",
+            "Northern Kosovo, The Balkans. Old towns, older grudges, and paperwork that can be bought.",
+            -3.0, -2.0, S.LEADERSHIP, "Urban and political — someone has to talk", 0, Vector2(0.520, 0.305)),
 
-		_make(&"chiapas_highlands", "Chiapas Highlands",
-			"Cloud forest and switchback roads nobody drives at night.",
-			1.0, 0.0, S.STEALTH, "Cloud forest — visibility cuts both ways", 1, Vector2(0.205, 0.480)),
+        _make(&"lacandon_jungle", "Lacandon Jungle",
+            "Chiapas, Mexico. Cloud forest and switchback roads nobody drives at night.",
+            1.0, 0.0, S.STEALTH, "Cloud forest — visibility cuts both ways", 1, Vector2(0.205, 0.480)),
 
-		_make(&"magdalena_gap", "Magdalena Gap",
-			"River valley, cartel country, and a great deal of money moving through it.",
-			4.0, 7.0, S.COMBAT, "Cartel country — everyone is armed", 1, Vector2(0.262, 0.585), GameEnums.Hazard.INFECTION),
-	]
+        _make(&"puerto_berrio", "Puerto Berrío",
+            "Antioquia, Colombia. River valley, cartel country, and a great deal of money moving through it.",
+            4.0, 7.0, S.COMBAT, "Cartel country — everyone is armed", 1, Vector2(0.262, 0.585), GameEnums.Hazard.INFECTION),
+    ]
 
 	for region in list:
 		_cache[region.id] = region

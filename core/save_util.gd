@@ -12,6 +12,16 @@ static func to_int_keys(source: Dictionary) -> Dictionary:
 	return result
 
 
+## The same, for a dictionary whose VALUES are fractions rather than counts.
+## to_int_keys casts both sides, which is right for skills and stars and would
+## silently round every banked part-point back to zero on load.
+static func to_int_keys_float(source: Dictionary) -> Dictionary:
+	var result := {}
+	for key in source:
+		result[int(str(key).to_int())] = float(source[key])
+	return result
+
+
 static func to_name_keys(source: Dictionary) -> Dictionary:
 	var result := {}
 	for key in source:

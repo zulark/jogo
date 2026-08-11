@@ -27,6 +27,13 @@ var squad_score: float = 0.0
 var difficulty: float = 0.0
 var success_chance: float = 0.0
 
+## What casing this contract turned out to be worth, as the preview priced it.
+## Kept separately from the modifier line it also produces because intel buys two
+## different things — score on the odds, and threat off every operator's harm
+## roll — and roll() has to spend the second one against the exact figure the
+## player was quoted at the door rather than whatever the mission says later.
+var intel_applied: float = 0.0
+
 ## --- Filled in only after roll() ---
 var rolled: bool = false
 var success: bool = false

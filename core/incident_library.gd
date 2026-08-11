@@ -100,6 +100,61 @@ static func catalogue() -> Array:
 			"build": func(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
 				return _creditor(campaign, rng),
 		},
+		{
+			"id": &"mentor_offer",
+			"weight": 3,
+			# Somebody senior enough to teach, somebody green enough to learn, and
+			# both of them standing around at base. The Academy is not required —
+			# it makes the offer worth more, which the detail line says.
+			"requires": func(state: GameState) -> bool:
+				return _teaching_pair(state).size() == 2,
+			"build": func(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
+				return _mentor_offer(campaign, rng),
+		},
+		{
+			"id": &"sell_the_story",
+			"weight": 3,
+			# There has to have been a contract to tell a story about, and somebody
+			# has to have heard of the company before they come asking for it.
+			"requires": func(state: GameState) -> bool:
+				return state.deployed_last_week > 0 and state.reputation >= 25,
+			"build": func(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
+				return _sell_the_story(campaign, rng),
+		},
+		{
+			"id": &"dealer_at_the_gate",
+			"weight": 3,
+			# The blackmarket comes to companies it has heard of, and only when
+			# there is somewhere to put what it is selling.
+			"requires": func(state: GameState) -> bool:
+				return (
+					state.reputation >= 35
+					and state.has_storage_room()
+					and state.diamonds > 3000),
+			"build": func(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
+				return _dealer_at_the_gate(campaign, rng),
+		},
+		{
+			"id": &"family_of_the_dead",
+			"weight": 3,
+			# Only a company that has buried somebody gets this letter. The whole
+			# point of the cemetery is that it goes on costing something.
+			"requires": func(state: GameState) -> bool:
+				return not state.cemetery.is_empty() and state.living_roster_size() >= 2,
+			"build": func(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
+				return _family_of_the_dead(campaign, rng),
+		},
+		{
+			"id": &"run_into_the_ground",
+			"weight": 3,
+			# Somebody the player has worked past the point of usefulness. The
+			# rotation pressure the whole fatigue system exists for, made into a
+			# decision instead of a number going up.
+			"requires": func(state: GameState) -> bool:
+				return _spent(state) != null,
+			"build": func(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
+				return _run_into_the_ground(campaign, rng),
+		},
 	]
 
 
@@ -158,7 +213,7 @@ static func _leave_request(campaign: Campaign, rng: RandomNumberGenerator) -> Di
 	return {
 		"title": "A request for leave",
 		"line": "%s wants %s at home. They have not asked before, and they are not asking loudly." % [
-			op.display_label(), TextUtil.count(days, "day")],
+			op.display_label(), TextUtil.spelled(days, "day")],
 		"options": [
 			{
 				"label": "Let them go",
@@ -255,8 +310,11 @@ static func _rush_job(campaign: Campaign, rng: RandomNumberGenerator) -> Diction
 		"options": [
 			{
 				"label": "Put it on the board",
-				"detail": "%s, %s, pays %d. Two days to take it." % [
-					mission.type_name(), mission.region_name(), mission.reward_diamonds],
+				"detail": "%s contract in %s, paying %s. Two days to take it." % [
+					TextUtil.sentence_case(
+						TextUtil.with_article(mission.type_name().to_lower())),
+					mission.region_place(),
+					TextUtil.count(mission.reward_diamonds, "diamond")],
 				"apply": func() -> String:
 					state.board.append(mission)
 					return "%s went on the board with two days on it." % mission.title,
@@ -278,10 +336,13 @@ static func _walk_in(campaign: Campaign, rng: RandomNumberGenerator) -> Dictiona
 	var op := OperatorFactory.create(rng)
 	var price: int = int(round(float(state.hire_cost(op)) * 1.25))
 
+	# The résumé opens with the name, so the framing sentence must not — "Lark
+	# heard the company was hiring. Lark is an Afghan warrant officer" is the
+	# same person introduced twice in a row.
 	return {
 		"title": "Someone at the gate",
-		"line": "%s heard the company was hiring and did not wait for the week to turn. %s" % [
-			op.display_label(), op.resume()],
+		"line": "Somebody at the gate heard the company was hiring and did not wait for the week to turn. %s" % (
+			op.resume()),
 		"options": [
 			{
 				"label": "Sign them now",
@@ -312,7 +373,7 @@ static func _early_discharge(campaign: Campaign, rng: RandomNumberGenerator) -> 
 	return {
 		"title": "Signing themselves out",
 		"line": "%s says they are fit and wants off the infirmary list %s early." % [
-			op.display_label(), TextUtil.count(left, "day")],
+			op.display_label(), TextUtil.spelled(left, "day")],
 		"options": [
 			{
 				"label": "Clear them for duty",
@@ -344,12 +405,12 @@ static func _informant(campaign: Campaign, rng: RandomNumberGenerator) -> Dictio
 	return {
 		"title": "A man with something to sell",
 		"line": "Someone who has been to %s wants paying for what he saw there. He will talk about %s." % [
-			mission.region_name(), mission.title],
+			mission.region_place(), mission.title],
 		"options": [
 			{
 				"label": "Pay him",
-				"detail": "%d diamonds. %s counts as cased, worth about %+.1f." % [
-					price, mission.title, worth],
+				"detail": "%s. %s counts as cased, worth about %+.1f to the odds." % [
+					TextUtil.count(price, "diamond"), mission.title, worth],
 				"apply": func() -> String:
 					if price > state.diamonds:
 						return "There was not enough in the account to pay him."
@@ -378,31 +439,36 @@ static func _informant(campaign: Campaign, rng: RandomNumberGenerator) -> Dictio
 static func _worn_kit(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
 	var state := campaign.state
 	var instance := _worst_spare(state)
-	var name_lower: String = instance.display_name().to_lower()
+	# Some kit is a plural — "night optics" — so nothing here may put a verb
+	# straight after the item's name. See ItemData.definite().
+	var named: String = instance.definite()
 	var refit: int = int(round(float(Workshop.repair_cost(instance)) * 1.6))
 	var parts: int = Workshop.scrap_value(instance)
 
 	return {
 		"title": "The armourer's complaint",
-		"line": "The %s is down to %d%% and he wants a decision on it. He can turn it round tonight without tying up a bench, or strip it where it stands." % [
-			name_lower, int(round(instance.condition))],
+		"line": "He has %s in front of him, down to %d%%, and he wants a decision on %s tonight. He can turn the job round without tying up a bench, or strip the whole thing for parts." % [
+			named, int(round(instance.condition)), instance.object_pronoun()],
 		"options": [
 			{
 				"label": "Pay for the rush refit",
-				"detail": "%d diamonds — more than the bench would charge. Back to %d%% tonight." % [
-					refit, int(round(instance.max_condition - instance.ceiling_cost_of_repair()))],
+				"detail": "%s — more than the bench would charge. Back to %d%% tonight." % [
+					TextUtil.count(refit, "diamond"),
+					int(round(instance.max_condition - instance.ceiling_cost_of_repair()))],
 				"apply": func() -> String:
 					state.diamonds -= refit
 					instance.repair()
-					return "The %s is back in the rack at %d%%." % [
-						name_lower, int(round(instance.condition))],
+					return "%s went back in the rack at %d%%." % [
+						TextUtil.sentence_case(named), int(round(instance.condition))],
 			},
 			{
 				"label": "Strip it for parts",
-				"detail": "%d parts, and the %s is gone." % [parts, name_lower],
+				"detail": "%s, and %s %s gone for good." % [
+					TextUtil.spelled_capitalised(parts, "part"), named, instance.verb_is()],
 				"apply": func() -> String:
 					campaign.scrap_item(instance)
-					return "The %s was stripped. %d parts on the shelf." % [name_lower, parts],
+					return "%s went to the parts bin. %s on the shelf." % [
+						TextUtil.sentence_case(named), TextUtil.spelled_capitalised(parts, "part")],
 			},
 		],
 	}
@@ -414,7 +480,8 @@ static func _creditor(campaign: Campaign, rng: RandomNumberGenerator) -> Diction
 
 	return {
 		"title": "Somebody wants paying",
-		"line": "The company is %d diamonds under. The people it is under to have started asking in person." % owed,
+		"line": "The company is %s in the red, and the people it owes have stopped writing letters about it. There is one of them at the desk now." % (
+			TextUtil.count(owed, "diamond")),
 		"options": [
 			{
 				"label": "Promise them the next contract",
@@ -434,13 +501,266 @@ static func _creditor(campaign: Campaign, rng: RandomNumberGenerator) -> Diction
 					var raised := int(round(float(campaign.resale_value(spare)) * 0.73))
 					state.inventory.erase(spare)
 					state.diamonds += raised
-					return "The %s went for %d." % [spare.display_name().to_lower(), raised],
+					return "%s went out of the gate for %s." % [
+						TextUtil.sentence_case(spare.definite()),
+						TextUtil.count(raised, "diamond")],
+			},
+		],
+	}
+
+
+static func _mentor_offer(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
+	var state := campaign.state
+	var pair := _teaching_pair(state)
+	var mentor: OperatorData = pair[0]
+	var trainee: OperatorData = pair[1]
+	var academy: int = state.facility_level(FacilityLibrary.ACADEMY)
+	var academy_note: String = (
+		"The Academy is at level %d, so it will take better than it otherwise would." % academy
+		if academy > 0
+		else "There is no Academy to run it in, so they will make do with the yard.")
+
+	return {
+		"title": "An offer to teach",
+		"line": "%s has watched %s work and has offered to take them in hand for a week. Neither of them is available for contracts while it runs." % [
+			mentor.display_label(), trainee.display_label()],
+		"options": [
+			{
+				"label": "Put them together",
+				"detail": "Both off the board for a week. %s" % academy_note,
+				"apply": func() -> String:
+					if campaign.start_training(mentor, trainee) == null:
+						return "The class could not be arranged today after all."
+					mentor.morale = clampi(mentor.morale + 6, 0, 100)
+					return "%s started teaching %s this morning." % [
+						mentor.display_label(), trainee.display_label()],
+			},
+			{
+				"label": "Not this week",
+				"detail": "Both stay available. %s takes it as a comment on their judgement." % (
+					mentor.display_label()),
+				"apply": func() -> String:
+					mentor.morale = maxi(0, mentor.morale - 8)
+					return "%s was told the roster could not spare either of them." % (
+						mentor.display_label()),
+			},
+		],
+	}
+
+
+static func _sell_the_story(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
+	var state := campaign.state
+	var fee: int = rng.randi_range(900, 2400)
+	var client := _least_favourite_client(state)
+	var client_name: String = (
+		FactionLibrary.faction_name(client) if client != &"" else "the last client")
+
+	return {
+		"title": "Somebody is writing it up",
+		"line": "A journalist has most of the last contract already and wants the company's side of it. They are offering to pay for the quotes.",
+		"options": [
+			{
+				"label": "Give them the story",
+				"detail": "%s and reputation +6. %s will not enjoy reading it: standing -8." % [
+					TextUtil.count(fee, "diamond"), client_name],
+				"apply": func() -> String:
+					state.diamonds += fee
+					state.reputation = clampi(state.reputation + 6, 0, 100)
+					if client != &"":
+						state.adjust_standing(client, -8)
+					return "It runs on Thursday, with the company named in it.",
+			},
+			{
+				"label": "Say nothing",
+				"detail": "No money, no coverage. Clients who prefer quiet contractors notice that too.",
+				"apply": func() -> String:
+					if client != &"":
+						state.adjust_standing(client, 3)
+					return "They were given a coffee and nothing else.",
+			},
+		],
+	}
+
+
+static func _dealer_at_the_gate(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
+	var state := campaign.state
+	var offered := _blackmarket_offer(state, rng)
+	# A quarter under the asking price, which is the whole reason to take a
+	# stranger's word for where it came from.
+	var price: int = int(round(float(offered.price) * 0.75))
+
+	return {
+		"title": "A dealer at the gate",
+		"line": "Somebody with a van is offering %s at a price that says nobody asked where it came from." % (
+			offered.indefinite()),
+		"options": [
+			{
+				"label": "Buy it",
+				"detail": "%s, a quarter under the blackmarket price. Reputation -3 for dealing at the gate." % (
+					TextUtil.count(price, "diamond")),
+				"apply": func() -> String:
+					if price > state.diamonds:
+						return "There was not enough in the account to take it."
+					if not state.has_storage_room():
+						return "There was nowhere left in storage to put it."
+					state.diamonds -= price
+					state.inventory.append(ItemInstance.create(offered.id, rng.randf_range(
+						Balance.LOOT_CONDITION_MIN, Balance.LOOT_CONDITION_MAX)))
+					state.reputation = maxi(0, state.reputation - 3)
+					return "It is in the warehouse, and the van is gone.",
+			},
+			{
+				"label": "Send them away",
+				"detail": "Costs nothing. Whatever it was, it is somebody else's problem now.",
+				"apply": func() -> String:
+					return "The van left without unloading.",
+			},
+		],
+	}
+
+
+static func _family_of_the_dead(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
+	var state := campaign.state
+	var lost: OperatorData = state.cemetery[state.cemetery.size() - 1]
+	var gratuity: int = maxi(400, lost.salary * 6)
+
+	return {
+		"title": "A letter about %s" % lost.display_label(),
+		"line": "%s was killed on %s, and the family has written to ask whether there is anything owed. Legally there is not." % [
+			lost.display_label(),
+			lost.died_on_mission if not lost.died_on_mission.is_empty() else "a contract",
+		],
+		"options": [
+			{
+				"label": "Pay it anyway",
+				"detail": "%s. The rest of the roster hears about it within a day." % (
+					TextUtil.count(gratuity, "diamond")),
+				"apply": func() -> String:
+					state.diamonds -= gratuity
+					for op in state.roster:
+						op.morale = clampi(op.morale + 7, 0, 100)
+					return "It went out the same afternoon, and everybody knows it did.",
+			},
+			{
+				"label": "Write back and explain the contract",
+				"detail": "Costs nothing today. The roster hears about that too.",
+				"apply": func() -> String:
+					for op in state.roster:
+						op.morale = maxi(0, op.morale - 5)
+					return "The letter was answered in full, and correctly.",
+			},
+		],
+	}
+
+
+static func _run_into_the_ground(campaign: Campaign, rng: RandomNumberGenerator) -> Dictionary:
+	var state := campaign.state
+	var op := _spent(state)
+	var days := rng.randi_range(2, 4)
+	var stimulants: int = rng.randi_range(700, 1300)
+
+	return {
+		"title": "%s is running on nothing" % op.display_label(),
+		"line": "%s is at %d%% fatigue and has not been off the roster in weeks. The medic has said so in writing, which is not something they normally bother doing." % [
+			op.display_label(), op.fatigue],
+		"options": [
+			{
+				"label": "Stand them down",
+				"detail": "Off the board for %s. Comes back at something like a working state." % (
+					TextUtil.count(days, "day")),
+				"apply": func() -> String:
+					op.days_unavailable = maxi(op.days_unavailable, days)
+					op.status = GameEnums.OperatorStatus.INJURED
+					op.fatigue = maxi(0, op.fatigue - 45)
+					op.morale = clampi(op.morale + 8, 0, 100)
+					return "%s was taken off everything for %s." % [
+						op.display_label(), TextUtil.count(days, "day")],
+			},
+			{
+				"label": "Buy them something to keep going",
+				"detail": "%s. Fatigue drops now and comes back worse in a week." % (
+					TextUtil.count(stimulants, "diamond")),
+				"apply": func() -> String:
+					if stimulants > state.diamonds:
+						return "There was not enough in the account for that."
+					state.diamonds -= stimulants
+					op.fatigue = maxi(0, op.fatigue - 25)
+					op.morale = maxi(0, op.morale - 10)
+					return "%s is available, and the medic has stopped speaking to the office." % (
+						op.display_label()),
+			},
+			{
+				"label": "They carry on as they are",
+				"detail": "Costs nothing today. They stay on the board at %d%% fatigue." % op.fatigue,
+				"apply": func() -> String:
+					op.morale = maxi(0, op.morale - 12)
+					return "%s stayed on the board." % op.display_label(),
 			},
 		],
 	}
 
 
 # --- Conditions --------------------------------------------------------------
+
+## A senior operator and the greenest person at base, both free today. Returns
+## [mentor, trainee] or an empty array.
+static func _teaching_pair(state: GameState) -> Array:
+	if not state.training.is_empty():
+		return []
+
+	var mentor: OperatorData = null
+	for op in state.potential_mentors():
+		if mentor == null or op.rank_step() > mentor.rank_step():
+			mentor = op
+	if mentor == null:
+		return []
+
+	var trainee: OperatorData = null
+	for op in state.available_operators():
+		if op == mentor or op.career_track == GameEnums.CareerTrack.INSTRUCTOR:
+			continue
+		if not Progression.can_train(mentor, op):
+			continue
+		if trainee == null or op.rank_step() < trainee.rank_step():
+			trainee = op
+	if trainee == null:
+		return []
+	return [mentor, trainee]
+
+
+## The client with the least patience left. Used where an action annoys somebody
+## — better it lands on a relationship that was already cool.
+static func _least_favourite_client(state: GameState) -> StringName:
+	var worst: StringName = &""
+	var lowest := 999
+	for id in FactionLibrary.ids():
+		var standing: int = state.standing_with(id)
+		if standing < lowest:
+			lowest = standing
+			worst = id
+	return worst
+
+
+## Something off the blackmarket shelf the company could plausibly be shown.
+static func _blackmarket_offer(state: GameState, rng: RandomNumberGenerator) -> ItemData:
+	var stock := ItemLibrary.stock_for(
+		ItemData.Source.BLACKMARKET, 3, maxi(state.reputation, 30))
+	if stock.is_empty():
+		stock = ItemLibrary.stock_for(ItemData.Source.ARMOURY, 3, state.reputation)
+	return stock[rng.randi() % stock.size()]
+
+
+## The most worn-out person at base, if anybody is far enough gone that the
+## roster is being damaged by it.
+static func _spent(state: GameState) -> OperatorData:
+	var worst: OperatorData = null
+	for op in state.roster:
+		if not op.is_deployable() or op.fatigue < 70:
+			continue
+		if worst == null or op.fatigue > worst.fatigue:
+			worst = op
+	return worst
+
 
 static func _unhappy(state: GameState) -> Array:
 	var found: Array = []

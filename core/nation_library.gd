@@ -44,7 +44,6 @@ static func all() -> Dictionary:
 		_make(&"kenya", "Kenya", "Kenyan", &"east_african"),
 		_make(&"south_korea", "South Korea", "Korean", &"korean"),
 		_make(&"japan", "Japan", "Japanese", &"japanese"),
-		_make(&"india", "India", "Indian", &"indian"),
 	]
 
 	for nation in list:

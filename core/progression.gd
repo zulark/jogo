@@ -76,14 +76,34 @@ static func promote_if_earned(op: OperatorData) -> Array[String]:
 ## Adds progress to one skill, converting a filled bar into a star. Returns a
 ## line describing what changed, or "" if nothing did. `ceiling` is how far
 ## ordinary practice can carry them.
+##
+## `gain` is a FLOAT and anything under a whole point is BANKED on the operator
+## rather than discarded. It used to be rounded to an int at the call site, and
+## the effect was far worse than a rounding error. Field gain is
+## SKILL_GAIN_BASE * weight * headroom, so 0.5 was the real ceiling and it
+## arrived long before SKILL_FIELD_CEILING ever did: a primary skill at weight
+## 0.55 froze at 82, a 0.3-weight skill at 67, and anything a contract only
+## brushed — a 0.2 weight — stopped dead at 50 and never moved again for the rest
+## of that operator's career. All of it was invisible, because a gain that
+## rounds to nothing prints nothing, so a plateau the arithmetic imposed read as
+## one the operator had earned.
+##
+## Banking the remainder is deliberately not a random tick. Doing the same work
+## twice makes somebody a point better for it, every time, for a reason the
+## player can point at.
+##
+## `reason` must be a NOUN PHRASE naming where the practice came from —
+## "infiltration work", "training under Reyes" — never a clause. Both lines below
+## put it after a dash, and the first version of this fed it to "mastered %s",
+## which shipped "Medical reached 1 star — mastered taught by Reyes".
 static func add_skill_progress(
 	op: OperatorData,
 	skill: int,
-	gain: int,
+	gain: float,
 	ceiling: int,
 	reason: String
 ) -> String:
-	if gain <= 0:
+	if gain <= 0.0:
 		return ""
 
 	var before: int = op.skill_progress(skill)
@@ -96,10 +116,23 @@ static func add_skill_progress(
 			return ""
 		op.skill_stars[skill] = stars + 1
 		op.skills[skill] = 0
-		return "%s reached %s — mastered %s" % [
-			GameEnums.skill_name(skill), TextUtil.count(stars + 1, "star"), reason]
+		op.skill_fraction[skill] = 0.0
+		return "%s mastered to %s — %s" % [
+			GameEnums.skill_name(skill), TextUtil.spelled(stars + 1, "star"), reason]
 
-	var after: int = mini(before + gain, ceiling)
+	# Already at what this kind of practice can teach. Say nothing and bank
+	# nothing — otherwise the remainder grows all campaign and pays out the
+	# instant a better ceiling (a class, an Academy) raises the bar.
+	if before >= ceiling:
+		return ""
+
+	var banked: float = float(op.skill_fraction.get(skill, 0.0)) + gain
+	var whole: int = int(floor(banked))
+	op.skill_fraction[skill] = banked - float(whole)
+	if whole <= 0:
+		return ""
+
+	var after: int = mini(before + whole, ceiling)
 	if after <= before:
 		return ""
 	op.skills[skill] = after
@@ -136,12 +169,18 @@ static func grow_skills(
 		var weight: float = float(weights[skill])
 		var before: int = op.skill_progress(skill)
 		var headroom: float = 1.0 - float(before) / 100.0
-		var gain: int = int(round(Balance.SKILL_GAIN_BASE * weight * headroom * ratio))
+		# Not rounded. add_skill_progress banks whatever is under a point, which
+		# is the only reason a lightly-tested skill ever moves at all.
+		var gain: float = Balance.SKILL_GAIN_BASE * weight * headroom * ratio
 
+		# "working as scout on infiltration work" was missing its article, and on
+		# an assault contract the role and the job are the same word — "working as
+		# assault on assault work". Naming the role only when it adds something
+		# fixes both.
 		var reason: String = "%s work" % job
-		if role_weights.has(skill):
-			reason = "working as %s on %s work" % [
-				GameEnums.role_name(role).to_lower(), job]
+		if role_weights.has(skill) and GameEnums.role_name(role).to_lower() != job:
+			reason = "%s work, as the squad's %s" % [
+				job, GameEnums.role_person_name(role)]
 
 		var line := add_skill_progress(
 			op, skill, gain, Balance.SKILL_FIELD_CEILING, reason)
@@ -266,10 +305,11 @@ static func apply_training(
 		if mentor_value <= before:
 			continue
 
-		var gain: int = int(round(float(mentor_value - before) * transfer))
+		var gain: float = float(mentor_value - before) * transfer
 		var ceiling: int = mini(mentor_value, Balance.TRAINING_SKILL_CEILING)
 		var line := add_skill_progress(
-			trainee, skill, gain, ceiling, "taught by %s" % mentor.display_label())
+			trainee, skill, gain, ceiling,
+			"training under %s" % mentor.display_label())
 		if not line.is_empty():
 			trainee_log.append(line)
 

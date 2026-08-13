@@ -409,7 +409,11 @@ static func _informant(campaign: Campaign, rng: RandomNumberGenerator) -> Dictio
 		"options": [
 			{
 				"label": "Pay him",
-				"detail": "%s. %s counts as cased, worth about %+.1f to the odds." % [
+				# "To the squad score", not "to the odds". The odds are no longer a
+				# number the player is ever shown, so quoting a figure against
+				# them names a quantity that is not on any screen; the squad
+				# score is, and is what this actually moves.
+				"detail": "%s. %s counts as cased, worth about %+.1f to the squad score." % [
 					TextUtil.count(price, "diamond"), mission.title, worth],
 				"apply": func() -> String:
 					if price > state.diamonds:

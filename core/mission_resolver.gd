@@ -11,8 +11,10 @@ extends RefCounted
 ##
 ## THE FORMULA
 ##   Each operator contributes:
-##       0.6 * (how well their skills match what this MISSION TYPE tests)
-##     + 0.4 * (how well their skills match the ROLE you assigned them)
+##       their RATING on this job — 0.6 * (how well their skills match what this
+##       MISSION TYPE tests) + 0.4 * (how well they suit their ROLE), which is
+##       `Ovr.rating()` and is the same figure the squad builder prints beside
+##       their name
 ##     + rank bonus
 ##     - personality mismatch cost
 ##     + trait modifiers
@@ -95,14 +97,15 @@ static func preview(squad: Squad, mission: MissionData, intel_bonus: float = 0.0
 			op.demonym(),
 		]
 
-		var mission_skill: float = profile.skill_match(op)
-		var role_skill: float = RoleProfile.score(op, role, mission_type)
-		var base: float = (
-			Balance.MISSION_SKILL_WEIGHT * mission_skill
-			+ Balance.ROLE_SKILL_WEIGHT * role_skill
-		)
+		# The rating, and the same one every screen prints beside their name — see
+		# Ovr. Named on the line rather than only summed into it, because a
+		# player who read "Rated 71 for sabotage work" on the row and then found
+		# an unlabelled +23.4 here has been given two numbers and no way to know
+		# they are the same one. The gap between them is the share above, which
+		# the short-handed line further down explains.
+		var base: float = Ovr.rating(op, role, profile)
 		report.add_modifier(
-			"Skills for %s work" % profile.display_name.to_lower(),
+			"Rated %d for %s work" % [int(round(base)), profile.display_name.to_lower()],
 			base * share,
 			GameEnums.ModifierSource.SKILL,
 			op.id
@@ -419,10 +422,7 @@ static func _apply_client_terms(
 static func _raw_contribution(op: OperatorData, role: int, profile: MissionProfile) -> float:
 	var mission_type: int = profile.mission_type
 
-	var total: float = (
-		Balance.MISSION_SKILL_WEIGHT * profile.skill_match(op)
-		+ Balance.ROLE_SKILL_WEIGHT * RoleProfile.score(op, role, mission_type)
-	)
+	var total: float = Ovr.rating(op, role, profile)
 	total += float(op.rank_step()) * Balance.RANK_BONUS_PER_STEP
 	total += profile.personality_cost(op)
 

@@ -262,6 +262,13 @@ func display_label() -> String:
 	return "%s \"%s\"" % [operator_name, callsign]
 
 
+## What the company calls them, for anywhere a full name will not fit — a list
+## column, a modifier line. The callsign alone where there is one, because that
+## is what everybody says out loud, and it is the half that stays short.
+func short_label() -> String:
+	return operator_name if callsign.is_empty() else callsign
+
+
 func rank_step() -> int:
 	return int(rank)
 
@@ -294,64 +301,183 @@ func initials() -> String:
 	return operator_name.substr(0, 2).to_upper()
 
 
-## A few sentences about who this is, composed from what the game already knows.
-## Generated rather than stored so it stays true as their career moves — the
-## record writes itself, which is the whole appeal of a roster you get attached to.
+## Who this is, composed from what the game already knows.
 ##
-## GRAMMAR (see .docs/prose_style_guide.md): every element of `parts` is a
-## COMPLETE SENTENCE with an explicit subject. TextUtil.sentences() only supplies
-## the stops, so a fragment stays a fragment — this used to emit "With this
-## company: 27 contracts completed, one of them gone wrong. 41 kills confirmed.
-## Brought on by Reyes." in the middle of a paragraph, and IncidentLibrary pastes
-## the whole thing straight after a sentence of its own, where a stack of
-## headings reads as a form rather than as a person.
+## Generated rather than stored so it stays true as their career moves — the
+## record writes itself, which is the whole appeal of a roster you get attached
+## to.
+##
+## THE PIPELINE. This does not concatenate facts. Each stage below answers one
+## question about the operator and returns **at most one sentence**, or "" when
+## it has nothing worth saying:
+##
+##   identity     who they are, and how far into the trade
+##   service      what they have run, here and elsewhere, in one arithmetic
+##   capability   what they are best at
+##   trait        what is on their file
+##   personality  how they work, read off the axes the resolver already scores
+##   record       kills and saves
+##   reputation   what the rest of the roster has decided about them
+##   status       the permanent facts: the instructor fork, and age
+##
+## Facts are GROUPED before they are written. The old version emitted "They
+## worked roughly 11 contracts elsewhere before signing on." immediately followed
+## by "They have not yet worked a contract for this company." — two sentences for
+## one idea, the second of them a negative carrying no information. Those are now
+## one sentence, and every stage that would repeat a sibling is suppressed rather
+## than printed.
+##
+## GRAMMAR (see .docs/prose_style_guide.md §4): every stage returns a COMPLETE
+## SENTENCE with an explicit subject. TextUtil.sentences() only supplies the
+## stops, so a fragment stays a fragment — and IncidentLibrary pastes the whole
+## thing straight after a sentence of its own, where a stack of headings reads as
+## a form rather than as a person.
 func resume() -> String:
-	var parts: Array = []
+	# Order is how it reads; priority is what survives the cap. A biography that
+	# says everything it knows is the form this stopped being.
+	var stages: Array = [
+		{"priority": 0, "text": _bio_identity()},
+		{"priority": 1, "text": _bio_service()},
+		# An instructor cannot be deployed at all. That outranks almost anything
+		# else the paragraph could say about them.
+		{"priority": 3, "text": _bio_track()},
+		{"priority": 2, "text": _bio_capability()},
+		{"priority": 4, "text": _bio_trait()},
+		{"priority": 7, "text": _bio_personality()},
+		{"priority": 5, "text": _bio_record()},
+		{"priority": 6, "text": _bio_reputation()},
+		{"priority": 8, "text": _bio_lineage()},
+		{"priority": 9, "text": _bio_age()},
+	]
 
-	parts.append("%s is %s %s, and %s." % [
+	var written: Array = []
+	for index in stages.size():
+		if not str(stages[index]["text"]).is_empty():
+			written.append({"order": index, "priority": stages[index]["priority"],
+				"text": stages[index]["text"]})
+
+	written.sort_custom(func(a, b): return a["priority"] < b["priority"])
+	written = written.slice(0, BIO_MAX_SENTENCES)
+	written.sort_custom(func(a, b): return a["order"] < b["order"])
+
+	var parts: Array = []
+	for entry in written:
+		parts.append(entry["text"])
+	return TextUtil.sentences(parts)
+
+
+## Past this a biography stops being a description and becomes a dossier. A
+## decorated ten-year veteran has more true things on file than anybody wants to
+## read under their portrait.
+const BIO_MAX_SENTENCES := 6
+
+
+## How the company refers to them once the opening sentence has introduced them
+## in full. Repeating the whole label every sentence is the other half of why the
+## paragraph read as a list.
+func _short_name() -> String:
+	return callsign if not callsign.is_empty() else operator_name
+
+
+## Identity and standing in one sentence, because they are one idea. The
+## seniority tail is a noun phrase in apposition — "and a veteran of the work" —
+## rather than the old ", and worth rather more than the company pays them",
+## which put a second clause behind a comma in every biography in the game.
+func _bio_identity() -> String:
+	return "%s is %s %s and %s." % [
 		display_label(),
 		TextUtil.with_article(demonym()),
-		GameEnums.rank_name(rank).to_lower(),
+		GameEnums.rank_full_name(rank).to_lower(),
 		_seniority(),
-	])
+	]
 
-	# "Roughly one contract" is not a quantity anybody estimates.
+
+## Everything they have run, here and elsewhere, as ONE arithmetic.
+##
+## A true newcomer gets nothing: the identity sentence has already said they are
+## new, and "has never been out on a contract" behind "and new to the trade" is
+## the same fact twice.
+func _bio_service() -> String:
+	var run: int = missions_completed + missions_failed
+	var who := _short_name()
+
+	if run == 0:
+		if prior_service <= 0:
+			return ""
+		return _pick(16, SERVICE_ELSEWHERE).format({"who": who, "record": _prior_phrase()})
+
+	var here := ""
+	if missions_failed == 0:
+		here = "%s has completed %s for this company without losing one" % [
+			who, TextUtil.spelled(run, "contract")]
+	elif missions_completed == 0:
+		here = "%s has deployed %s for this company and has yet to close one" % [
+			who, TextUtil.spelled(run, "time")]
+	else:
+		here = "%s has completed %s for this company and lost %s" % [
+			who, TextUtil.spelled(missions_completed, "contract"),
+			TextUtil.number(missions_failed)]
+
+	if prior_service <= 0:
+		return "%s, and has never served under anybody else." % here
+	return "%s, on top of %s elsewhere." % [here, _prior_phrase()]
+
+
+## Every operator on a fresh roster has service elsewhere and none here, so this
+## is the single most-repeated sentence in the game — six of them are on screen
+## at once on the Recruits list. It gets variants for that reason alone.
+##
+## GRAMMAR: a SENTENCE, with named placeholders substituted by String.format().
+## `{who}` is the callsign, `{record}` is an already-counted noun phrase
+## ("roughly eleven contracts", "a single contract"), so no entry may supply a
+## number or an article of its own.
+const SERVICE_ELSEWHERE := [
+	"{who} came in with {record} behind them and has yet to deploy for this company.",
+	"{who} has {record} behind them and nothing yet for this company.",
+	"{who} arrived with {record} to their name and has not deployed for this company yet.",
+	"{who} turned up with {record} already behind them and has not been out for this company.",
+]
+
+
+## "Roughly one contract" is not a quantity anybody estimates, and neither is
+## "roughly two". A hedge only means anything once the number is big enough that
+## nobody would have counted it exactly.
+const PRIOR_HEDGE_FLOOR := 5
+
+
+func _prior_phrase() -> String:
 	if prior_service == 1:
-		parts.append("They worked a single contract elsewhere before signing on.")
-	elif prior_service > 1:
-		parts.append("They worked roughly %s elsewhere before signing on." % (
-			TextUtil.spelled(prior_service, "contract")))
+		return "a single contract"
+	if prior_service < PRIOR_HEDGE_FLOOR:
+		return TextUtil.spelled(prior_service, "contract")
+	return "roughly %s" % TextUtil.spelled(prior_service, "contract")
 
-	parts.append(_company_record())
 
-	if confirmed_kills > 0:
-		parts.append("They have %s confirmed." % TextUtil.spelled(confirmed_kills, "kill"))
-	if saves > 0:
-		parts.append("They have pulled %s out alive." % (
-			TextUtil.spelled(saves, "squadmate")))
-
+func _bio_capability() -> String:
 	var best: Array = top_skills(1)
-	if not best.is_empty() and int(best[0]["value"]) > 0:
-		parts.append("Their strongest skill is %s, at %d." % [
-			GameEnums.skill_name(best[0]["skill"]).to_lower(), int(best[0]["value"])])
+	if best.is_empty() or int(best[0]["value"]) <= 0:
+		return ""
+	var skill: int = int(best[0]["skill"])
+	# A starred skill reads as 100-plus, and "at 110" is a number no scale on any
+	# screen explains. Mastery is the thing worth saying there.
+	if stars_in(skill) > 0:
+		return "They have taken %s as far as it goes." % GameEnums.skill_name(skill).to_lower()
+	return "%s is their strongest suit, at %d." % [
+		GameEnums.skill_name(skill), int(best[0]["value"])]
 
-	if not trained_by.is_empty():
-		parts.append("They were brought on by %s." % trained_by)
-	if not trainees.is_empty():
-		parts.append("They have trained %s." % TextUtil.spelled(trainees.size(), "operator"))
 
+## The trait names are a mixture of adjectives ("claustrophobic"), nouns
+## ("hothead") and verb phrases ("fears assault"), and a colon is the one frame
+## all three read correctly after. Positives were previously never mentioned at
+## all, so half of what the factory generates never reached the page.
+func _bio_trait() -> String:
 	for t in traits:
 		if t.polarity == GameEnums.TraitPolarity.NEGATIVE:
-			# A colon inside a sentence that has a subject and a verb, rather than
-			# the bare heading "Noted on their file: hothead" — the trait names are
-			# a mixture of adjectives ("claustrophobic"), nouns ("hothead") and
-			# verb phrases ("fears assault"), and this is the one frame all three
-			# read correctly after.
-			parts.append("Their file carries one note: %s." % t.display_name.to_lower())
-			break
-
-	parts.append(_reputation_line())
-	return TextUtil.sentences(parts)
+			return "Their file carries one note: %s." % t.display_name.to_lower()
+	for t in traits:
+		if t.polarity == GameEnums.TraitPolarity.POSITIVE:
+			return "One thing stands out on their file: %s." % t.display_name.to_lower()
+	return ""
 
 
 ## Seniority describes the CAREER, not the tenure. Reading it off
@@ -361,41 +487,45 @@ func resume() -> String:
 ## Anyone with service elsewhere is senior in the trade; only contracts run FOR
 ## THIS COMPANY make them one of its own.
 ##
-## GRAMMAR (see .docs/prose_style_guide.md): each entry completes the frame
-## "<label> is <a nationality rank>, and ___." — so it is a lower-case predicate
-## phrase with NO closing stop and, above all, NO COMMA. "No longer a liability,
-## and not yet an asset" put a second "and" into a sentence that already had one.
+## GRAMMAR (see .docs/prose_style_guide.md §4): each entry completes the frame
+## "<label> is <a nationality rank> and ___." — a lower-case NOUN PHRASE in
+## apposition, with NO closing stop and NO COMMA.
+##
+## A noun phrase rather than the predicate phrases these used to hold, because
+## the frame used to be "…, and ___." and every biography in the game therefore
+## carried a second clause behind a comma before it had said anything. "A veteran
+## of the work" sits behind "and" without punctuation and reads as one thought.
 const SENIORITY := {
 	# Contracts here outrank contracts anywhere else, so these are checked first.
 	"company_veteran": [
 		"one of the company's old hands",
 		"one of the names this company is known by",
-		"as much a fixture here as the building",
+		"a fixture here by now",
 	],
 	"company_regular": [
 		"an experienced hand here",
 		"somebody this company has learned to rely on",
-		"well established here by now",
+		"a known quantity around here",
 	],
 	"career_top": [
-		"as experienced as this trade gets",
-		"about as far into this trade as anybody gets",
-		"long enough in the work to have outlived most of it",
+		"a career veteran of this work",
+		"one of the older hands in the trade",
+		"a veteran of about as much of this as anybody sees",
 	],
 	"career_senior": [
-		"well past the point of needing supervision",
-		"long since done being told anything twice",
-		"worth rather more than the company pays them",
+		"a veteran of the work",
+		"somebody well past needing supervision",
+		"an experienced hand in the trade",
 	],
 	"career_middle": [
-		"still finding their feet",
-		"past the worst of the learning",
-		"no longer a liability but not yet an asset",
+		"a few contracts into the work",
+		"somebody past the worst of the learning",
+		"a competent pair of hands and not much more yet",
 	],
 	"career_new": [
-		"new to the work",
-		"still new enough to be surprised by it",
-		"yet to find out what this job actually is",
+		"new to the trade",
+		"a recent arrival to the work",
+		"somebody new enough to still be surprised by it",
 	],
 }
 
@@ -419,26 +549,152 @@ func _seniority() -> String:
 	return _pick(6, SENIORITY["career_new"])
 
 
-## What they have done FOR THIS COMPANY, as one sentence that cannot contradict
-## itself. "One contract completed, one of them gone wrong" said both that they
-## had run one contract and that a different one had failed, and "of them" had no
-## plural to point at.
-func _company_record() -> String:
-	var run: int = missions_completed + missions_failed
-	if run == 0:
-		# Only worth saying where there is service elsewhere to contrast it with.
-		# For a true walk-in it just repeats the closing line back at the player.
-		return "They have not yet worked a contract for this company." \
-			if prior_service > 0 else ""
-	if missions_failed == 0:
-		return "They have run %s for this company and not lost one." % (
-			TextUtil.spelled(run, "contract"))
-	if missions_completed == 0:
-		return "They have run %s for this company and finished none." % (
-			TextUtil.spelled(run, "contract"))
-	# run >= 2 here, so "of them" has its plural.
-	return "They have run %s for this company, %s of them lost." % [
-		TextUtil.spelled(run, "contract"), TextUtil.number(missions_failed)]
+## How they work, read off the personality axes the resolver already scores
+## against every mission profile. Those four numbers decide whether an operator
+## suits a job and were never once mentioned in prose, so the one part of the
+## data that is actually about character was invisible.
+##
+## Only the axis furthest from neutral, and only when it is far enough out to
+## mean something. An operator sitting near 50 on everything gets no line rather
+## than an invented personality — which is the rule the whole file runs on.
+##
+## GRAMMAR: a complete SENTENCE with "They" as its subject. Nothing here may
+## claim a relationship, a record or a preference the data does not hold: bonds
+## are their own system, and a loner with three friendships would be a
+## contradiction the player can see.
+const PERSONALITY_NOTES := {
+	"aggression_high": [
+		"They push harder than the plan usually allows for.",
+		"They tend to force a position rather than wait for it to open.",
+		"They are not built for hanging back.",
+		"They would rather move too early than too late.",
+		"They close distance when the sensible thing is to hold it.",
+	],
+	"aggression_low": [
+		"They would rather wait out a bad position than force it.",
+		"They are slow to commit to ground they have not looked at twice.",
+		"They will not be hurried into a building.",
+		"They would rather arrive late than arrive wrong.",
+		"Speed is not something they will trade safety for.",
+	],
+	"discipline_high": [
+		"They keep to the plan and expect everyone else to.",
+		"They do the job the way the briefing said to do it.",
+		"They have very little patience for improvisation.",
+		"They read the brief twice and hold everyone to it.",
+		"They do not consider a plan a suggestion.",
+	],
+	"discipline_low": [
+		"They work better off the plan than on it.",
+		"They treat a briefing as a starting position.",
+		"Plans tend not to survive contact with them.",
+		"They improvise first and explain afterwards.",
+		"They are unlikely to follow a timetable all the way through.",
+	],
+	"bravery_high": [
+		"They do not seem to register risk the way the rest of the roster does.",
+		"They go through the door first without being asked to.",
+		"Fear does not appear to come into it for them.",
+		"They volunteer for the part of the job nobody else wants.",
+		"Nothing about the work appears to trouble them.",
+	],
+	"bravery_low": [
+		"They are honest about being frightened, which is more than most manage.",
+		"They do not pretend the work does not frighten them.",
+		"They need telling twice before they will go through a door.",
+		"They are in no hurry to be first out of the truck.",
+		"They are not going to pretend this work is easy.",
+	],
+	"sociability_high": [
+		"They are the one the new arrivals end up talking to.",
+		"They work best with people around them.",
+		"They are easy to put in a squad with anybody.",
+		"They talk through a problem rather than sit on it.",
+		"They are usually in the middle of whatever is going on.",
+	],
+	"sociability_low": [
+		"They keep to themselves between contracts.",
+		"They would rather work alone, and say so.",
+		"They are not much for company.",
+		"They answer questions and volunteer nothing.",
+		"They are difficult to get more than a sentence out of.",
+	],
+}
+
+## How far off neutral an axis has to sit before it says anything. The factory
+## rolls 50 ± 32, so roughly two operators in five have one axis this far out and
+## the rest are described by their record instead.
+const PERSONALITY_THRESHOLD := 20
+
+
+func _bio_personality() -> String:
+	var strongest := -1
+	var distance := 0
+	for axis in GameEnums.PersonalityAxis.values():
+		var offset: int = absi(get_personality(axis) - 50)
+		if offset > distance:
+			distance = offset
+			strongest = axis
+	if strongest < 0 or distance < PERSONALITY_THRESHOLD:
+		return ""
+
+	var key := "%s_%s" % [
+		GameEnums.axis_name(strongest).to_lower(),
+		"high" if get_personality(strongest) > 50 else "low",
+	]
+	if not PERSONALITY_NOTES.has(key):
+		return ""
+	return _pick(12 + strongest, PERSONALITY_NOTES[key])
+
+
+## Kills and saves in one sentence. Two made the paragraph a tally.
+func _bio_record() -> String:
+	var kills: bool = confirmed_kills > 0
+	var pulled: bool = saves > 0
+	if kills and pulled:
+		return "They have %s confirmed, and have pulled %s out alive." % [
+			TextUtil.number(confirmed_kills), TextUtil.spelled(saves, "squadmate")]
+	if kills:
+		return "They have %s confirmed." % TextUtil.number(confirmed_kills)
+	if pulled:
+		return "They have pulled %s out alive." % TextUtil.spelled(saves, "squadmate")
+	return ""
+
+
+## Who taught them and who they taught. Suppressed when the closing line is
+## already about their teaching, or the paragraph says it twice.
+func _bio_lineage() -> String:
+	var taught: bool = not trainees.is_empty() and _reputation_gate() != "instructor"
+	if not trained_by.is_empty() and taught:
+		return "They came up under %s, and have trained %s since." % [
+			trained_by, TextUtil.spelled(trainees.size(), "operator")]
+	if not trained_by.is_empty():
+		return "They came up under %s." % trained_by
+	if taught:
+		return "They have trained %s." % TextUtil.spelled(trainees.size(), "operator")
+	return ""
+
+
+## The permanent facts about a career, as opposed to what they are doing this
+## week. Nothing here moves day to day: a biography that changed every time
+## somebody sprained an ankle would not be a biography.
+func _bio_track() -> String:
+	if career_track == GameEnums.CareerTrack.INSTRUCTOR:
+		return "They teach now, and will not be going out again."
+	return ""
+
+
+## Said about people the years have genuinely caught up with, not everybody past
+## the line where the numbers start moving. Decline begins at AGE_DECLINE_START,
+## which is early enough that a third of any roster is over it — and a sentence
+## printed about a third of the roster stops being about anybody.
+const BIO_AGE_MARGIN := 6
+
+
+func _bio_age() -> String:
+	if age < Balance.AGE_DECLINE_START + BIO_AGE_MARGIN:
+		return ""
+	return "At %d, the physical side of it no longer comes free." % age
 
 
 ## What the rest of the roster has decided about them.
@@ -470,26 +726,44 @@ const REPUTATION := {
 		"They have been on the wrong contracts more often than not.",
 		"Somebody in accounts has noticed which jobs they were on.",
 	],
+	# Nothing here may claim the file is empty. A trait prints one line above
+	# this — "One thing stands out on their file: ghost." — and "there is nothing
+	# on their file but the signature" underneath it contradicted it outright.
 	"untested": [
 		"Nobody here has seen them work yet.",
-		"There is nothing on their file but the signature.",
+		"There is nothing behind the signature yet.",
 		"The company is taking them on faith.",
 	],
 }
 
 
-func _reputation_line() -> String:
+## Which record, if any, has earned them a closing line. Separate from the line
+## itself so _bio_lineage() can ask the same question and stay quiet rather than
+## reporting the trainee count directly above a sentence about their teaching.
+const REPUTATION_SALTS := {
+	"killer": 7, "saver": 8, "instructor": 9, "unlucky": 10, "untested": 11,
+}
+
+
+func _reputation_gate() -> String:
 	if confirmed_kills >= 25:
-		return _pick(7, REPUTATION["killer"])
+		return "killer"
 	if saves >= 3:
-		return _pick(8, REPUTATION["saver"])
+		return "saver"
 	if trainees.size() >= 2:
-		return _pick(9, REPUTATION["instructor"])
+		return "instructor"
 	if missions_failed > missions_completed and missions_failed + missions_completed >= 3:
-		return _pick(10, REPUTATION["unlucky"])
+		return "unlucky"
 	if missions_completed + missions_failed + prior_service == 0:
-		return _pick(11, REPUTATION["untested"])
+		return "untested"
 	return ""
+
+
+func _bio_reputation() -> String:
+	var gate := _reputation_gate()
+	if gate.is_empty():
+		return ""
+	return _pick(int(REPUTATION_SALTS[gate]), REPUTATION[gate])
 
 
 ## A choice that is stable for this operator.

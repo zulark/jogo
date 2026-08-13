@@ -69,6 +69,10 @@ func _make_entry(op: OperatorData) -> Control:
 		circumstances = "Cause of death unrecorded."
 	box.add_child(UiStyle.text(circumstances, UiStyle.SIZE_SMALL, UiStyle.TEXT_2))
 
+	var kit := ItemHistory.memorial_line(op, Game.campaign.state.inventory)
+	if not kit.is_empty():
+		box.add_child(UiStyle.text(kit, UiStyle.SIZE_SMALL, UiStyle.OCHRE))
+
 	if not op.trained_by.is_empty():
 		box.add_child(UiStyle.text(
 			"Trained by %s." % op.trained_by, UiStyle.SIZE_SMALL, UiStyle.TEXT_3))

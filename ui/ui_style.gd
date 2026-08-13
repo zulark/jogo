@@ -389,7 +389,16 @@ static func skill_summary(op: OperatorData, count: int = 3, size: int = SIZE_SMA
 	for entry in op.top_skills(count):
 		parts.append("%s %d" % [
 			GameEnums.skill_name(entry["skill"]), int(entry["value"])])
-	return text("   ".join(parts), size, TEXT_2)
+
+	# Clipped, for the reason every other label in an identity block is: this one
+	# sits inside `operator_identity`, whose own minimum width is a floor rather
+	# than a size, and an unclipped child overrides it. Three skill names is
+	# comfortably the widest line in the block, so it was setting the width of the
+	# whole row and pushing the columns to its right off the edge of the list.
+	var label := text("   ".join(parts), size, TEXT_2)
+	label.clip_text = true
+	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	return label
 
 
 ## "★★☆☆☆" — mastery at a glance, next to the skill name.
@@ -472,6 +481,111 @@ static func operator_identity(
 
 	grow(box)
 	return box
+
+
+# --- Bonds -------------------------------------------------------------------
+
+## Every link between this operator and a given group, strongest first.
+##
+## The group is normally the squad being assembled, which makes this the answer
+## to "what happens if I put this person in with these people" — the question
+## the squad builder exists to ask and could not previously answer at all.
+static func bonds_with(op: OperatorData, others: Array) -> Array:
+	var found: Array = []
+	for other in others:
+		if other == op or not Bonds.has_bond(op, other):
+			continue
+		found.append({
+			"other": other,
+			"type": Bonds.bond_type(op, other),
+			"strength": Bonds.strength(op, other),
+		})
+	found.sort_custom(func(a, b): return a["strength"] > b["strength"])
+	return found
+
+
+## The strongest tie this operator has to a group, as a fixed-width list column.
+##
+## Shaped like `stat()` and `fatigue_meter()` rather than as an extra line of
+## text, for the reason those exist: a row's height is fixed, and anything that
+## grows a row grows it into the one beneath. A column can be empty without
+## changing anything around it, which matters here because most operators have
+## no history with most squads.
+##
+## Rivalries outrank friendships when both are present. A friend in the squad is
+## worth knowing about; somebody they cannot work with is worth stopping for.
+static func bond_column(op: OperatorData, others: Array, width: int = 104) -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 1)
+	box.custom_minimum_size.x = width
+
+	var links := bonds_with(op, others)
+	if links.is_empty():
+		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return box
+
+	var pick: Dictionary = links[0]
+	for link in links:
+		if link["type"] == GameEnums.BondType.RIVALRY:
+			pick = link
+			break
+
+	var caption := text(
+		"WITH SQUAD" if links.size() == 1 else "WITH SQUAD (%d)" % links.size(),
+		SIZE_CAPTION, TEXT_3)
+	caption.add_theme_font_override("font", display())
+	caption.clip_text = true
+	box.add_child(caption)
+
+	var other: OperatorData = pick["other"]
+	var value := text(
+		"%s · %s" % [Bonds.short_word(pick["type"]), other.short_label()],
+		SIZE_SMALL,
+		Bonds.color_for(pick["type"]))
+	value.clip_text = true
+	value.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	box.add_child(value)
+
+	# The cause lives in the tooltip rather than the row. It is a whole sentence
+	# — "They got each other out alive on Salt the Wells" — and the row has no
+	# width for it, but it is the part that makes the link a story instead of a
+	# modifier, so it must be reachable from where the decision is made.
+	var lines: PackedStringArray = []
+	for link in links:
+		var reason: String = Bonds.reason_for(op, link["other"])
+		lines.append("%s · %s%s" % [
+			Bonds.describe(link["type"], link["strength"]),
+			link["other"].display_label(),
+			("\n    " + reason) if not reason.is_empty() else ""])
+	box.tooltip_text = "\n".join(lines)
+	return box
+
+
+## Every link inside one group, each listed once, with what caused it.
+##
+## This is the squad builder's story surface. The column above answers "should I
+## add them"; this answers "who are these people to each other", which is the
+## question the player is meant to start asking somewhere around week six.
+static func bond_ties(members: Array) -> Array:
+	var seen := {}
+	var ties: Array = []
+	for a in members:
+		for b in members:
+			if a == b or not Bonds.has_bond(a, b):
+				continue
+			var key: String = "%s|%s" % ([a.id, b.id] if str(a.id) < str(b.id) else [b.id, a.id])
+			if seen.has(key):
+				continue
+			seen[key] = true
+			ties.append({
+				"a": a,
+				"b": b,
+				"type": Bonds.bond_type(a, b),
+				"strength": Bonds.strength(a, b),
+				"reason": Bonds.reason_for(a, b),
+			})
+	ties.sort_custom(func(x, y): return x["strength"] > y["strength"])
+	return ties
 
 
 ## Rank insignia, sized to sit inline with a name.
@@ -650,6 +764,205 @@ static func odds_color(percent: int) -> Color:
 	return RUST
 
 
+# --- Assessment --------------------------------------------------------------
+
+## The company's read on a contract, said in words instead of as a percentage.
+##
+## The resolver still computes an exact probability, the breakdown still lists
+## every term, and the list still sums to the squad score. What goes is the
+## player ever being SHOWN the figure. A visible "95%" makes the decision before
+## the player does: the question stops being "do I understand this job well
+## enough to know who to send" and becomes "how do I get this number up", and
+## every screen in front of it becomes an optimiser rather than a briefing.
+##
+## Six bands is coarse on purpose. There is nothing to tune toward except the
+## next band, and a band is roughly a SPREAD's worth of squad score, so crossing
+## one means a real change in the squad rather than a rounding win. The
+## breakdown underneath still names exactly which term to act on — the player
+## loses the score, not the reasons.
+##
+## Every band is read off the same `success_chance` the roll will use, so the
+## assessment can never disagree with what actually happens.
+const ASSESSMENT_STEPS := 6
+
+## Score terms smaller than this are noise in a summary — they belong in the
+## breakdown, which lists everything, not in a list of things worth acting on.
+const CONCERN_FLOOR := 1.0
+
+
+## 0 (desperate) through 5 (routine), from a raw probability.
+##
+## Anything quoting a HYPOTHETICAL reading — a field decision pricing what it
+## will buy before the player takes it — goes through this, because it has a
+## chance from `MissionResolver.chance_for()` and no report to hang it on.
+static func assessment_band_for(chance: float) -> int:
+	var percent: int = int(round(chance * 100.0))
+	if percent >= 86:
+		return 5
+	if percent >= 72:
+		return 4
+	if percent >= 58:
+		return 3
+	if percent >= 44:
+		return 2
+	if percent >= 28:
+		return 1
+	return 0
+
+
+static func assessment_band(report: MissionReport) -> int:
+	return assessment_band_for(report.success_chance)
+
+
+static func assessment_word_for(band: int) -> String:
+	match band:
+		5:
+			return "Routine"
+		4:
+			return "Favourable"
+		3:
+			return "Workable"
+		2:
+			return "Even"
+		1:
+			return "Against us"
+		_:
+			return "Desperate"
+
+
+static func assessment_word(report: MissionReport) -> String:
+	return assessment_word_for(assessment_band(report))
+
+
+## The band said as a sentence. Carries the part a single word cannot: whether
+## the squad is ahead or behind, and how much room that leaves.
+static func assessment_note(report: MissionReport) -> String:
+	match assessment_band(report):
+		5:
+			return "Nothing here they have not handled before."
+		4:
+			return "Comfortably ahead of what this asks for."
+		3:
+			return "Ahead, but not by enough to be careless."
+		2:
+			return "This could go either way."
+		1:
+			return "Behind on this. Somebody will pay for it."
+		_:
+			return "This is not a contract. It is a gamble."
+
+
+static func assessment_color_for(band: int) -> Color:
+	match band:
+		5, 4:
+			return MINT
+		3, 2:
+			return OCHRE
+		_:
+			return RUST
+
+
+static func assessment_color(report: MissionReport) -> Color:
+	return assessment_color_for(assessment_band(report))
+
+
+## A gauge, and deliberately not a bar.
+##
+## Fatigue and condition are drawn as continuous bars because those genuinely
+## ARE percentages the player is meant to read. This one fills in whole steps,
+## so two contracts can be compared against each other without the shape ever
+## resolving back into the figure this whole change exists to withhold.
+static func band_gauge(band: int, color: Color, cell_width: int = 22, expand: bool = false) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 3)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for i in ASSESSMENT_STEPS:
+		var cell := ColorRect.new()
+		cell.custom_minimum_size = Vector2(cell_width, 7)
+		cell.color = color if i <= band else RULE
+		if expand:
+			cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(cell)
+	if expand:
+		grow(row)
+	return row
+
+
+## The headline block: what the company thinks of this job, and why in one line.
+static func assessment_block(report: MissionReport, caption: String = "Our assessment") -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+
+	var label := text(caption.to_upper(), SIZE_CAPTION, TEXT_3)
+	label.add_theme_font_override("font", display())
+	box.add_child(label)
+
+	var color := assessment_color(report)
+	box.add_child(title(assessment_word(report), SIZE_TITLE, color))
+	box.add_child(band_gauge(assessment_band(report), color))
+
+	var note := text(assessment_note(report), SIZE_SMALL, TEXT_2)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(note)
+	return box
+
+
+## Whose line this is, for a term the resolver charged to one person. The
+## callsign rather than the legal name — it is shorter, and it is what the
+## company actually calls them.
+static func _modifier_owner(report: MissionReport, modifier: Modifier) -> String:
+	if modifier.operator_id == &"" or report.squad == null:
+		return ""
+	for op in report.squad.members():
+		if op.id == modifier.operator_id:
+			return op.short_label()
+	return ""
+
+
+## The terms costing this squad the most, worst first, named.
+##
+## Read straight off the breakdown rather than restated, so a concern the player
+## is shown is one the resolver genuinely charged them for — and fixing it moves
+## the same number. This is what replaces the percentage as the thing the player
+## acts on: not "get it to 95" but "they are two people over strength and one of
+## them is exhausted".
+static func assessment_concerns(report: MissionReport, limit: int = 4) -> Array:
+	var found: Array = []
+	for modifier in report.modifiers:
+		if modifier.value > -CONCERN_FLOOR:
+			continue
+		var owner := _modifier_owner(report, modifier)
+		found.append({
+			"label": ("%s — %s" % [owner, modifier.label]) if not owner.is_empty()
+				else modifier.label,
+			"value": modifier.value,
+		})
+	found.sort_custom(func(a, b): return a["value"] < b["value"])
+	return found.slice(0, limit)
+
+
+## The concern list as a column of lines. No figures: on the board there is no
+## breakdown to check them against, and a bare "-24.0" with nothing to compare
+## it to is the percentage wearing a different hat.
+static func concerns_readout(report: MissionReport, limit: int = 4) -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 3)
+
+	var concerns := assessment_concerns(report, limit)
+	if concerns.is_empty():
+		var clear := text(
+			"Nothing standing against them.", SIZE_SMALL, TEXT_3)
+		clear.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(clear)
+		return box
+
+	for concern in concerns:
+		var line := text("·   %s" % concern["label"], SIZE_SMALL, TEXT_2)
+		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(line)
+	return box
+
+
 ## Risk climbs the same ramp everywhere: quiet, then ochre, then rust.
 ## Difficulty as a skull rating rather than a bare number. A player reads
 ## "three of five" instantly and has to think about "68.4".
@@ -731,6 +1044,106 @@ static func risk_color(risk: float) -> Color:
 	if risk >= 45.0:
 		return OCHRE
 	return TEXT
+
+
+# --- Rating ------------------------------------------------------------------
+
+## Label, bar, figure. The one row shape for anything measured out of 100 — a
+## skill, a temperament axis, what a squad brings in stealth, what an operator
+## rates on sabotage work. The figure is monospace so a column of them stays
+## straight whether the value is 7 or 97.
+##
+## `shown_value` is for the one case where the bar and the number are honestly
+## different: a starred skill's bar shows progress toward the NEXT star while the
+## figure shows what the operator is actually worth.
+static func meter_row(
+	caption: String,
+	value: int,
+	color: Color = OCHRE,
+	shown_value: int = -1,
+	caption_width: int = 108,
+	value_width: int = 38
+) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+
+	var name_label := text(caption, SIZE_SMALL, TEXT_2)
+	name_label.custom_minimum_size.x = caption_width
+	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(name_label)
+
+	# The bar styles itself rather than sitting inside a PanelContainer — a
+	# container squeezes it back down to a hairline.
+	var bar := ProgressBar.new()
+	bar.max_value = 100
+	bar.value = clampi(value, 0, 100)
+	bar.show_percentage = false
+	bar.custom_minimum_size.y = 10
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	grow(bar)
+
+	var track := StyleBoxFlat.new()
+	track.bg_color = INK
+	track.set_corner_radius_all(2)
+	bar.add_theme_stylebox_override("background", track)
+
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = color
+	fill.set_corner_radius_all(2)
+	bar.add_theme_stylebox_override("fill", fill)
+	row.add_child(bar)
+
+	var value_label := data(
+		str(value if shown_value < 0 else shown_value), SIZE_SMALL, TEXT)
+	value_label.custom_minimum_size.x = value_width
+	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(value_label)
+
+	return row
+
+
+## What a kind of work asks for, and — when a squad is given — what that squad
+## actually brings to each of those things.
+##
+## The tier is named on every row rather than carried by a heading above a group
+## or by the bar's colour alone. Headings cost two rows on a panel that has none
+## to spare, and colour on its own cannot be read by everybody — so the word
+## does the work and the colour agrees with it. Both tiers come out of
+## `Ovr.emphasis()`, which derives them from the profile's own weights, so this
+## can never label a job in a way its own arithmetic contradicts.
+##
+## The bars are the squad's AVERAGE in each skill, not their rating. See
+## Ovr.group_average for why those are deliberately different numbers.
+static func work_emphasis_block(
+	profile: MissionProfile,
+	members: Array = [],
+	caption_width: int = 132
+) -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 3)
+	if profile == null:
+		return box
+
+	for entry in Ovr.emphasis(profile):
+		var skill: int = int(entry["skill"])
+		var primary: bool = bool(entry["primary"])
+		var caption: String = "%s  ·  %s" % [
+			GameEnums.skill_name(skill), "primary" if primary else "secondary"]
+
+		if members.is_empty():
+			# No squad to measure, so no bar. One drawn at zero would read as a
+			# squad that is bad at this rather than as no squad.
+			box.add_child(text(caption, SIZE_SMALL, TEXT_2 if primary else TEXT_3))
+			continue
+
+		box.add_child(meter_row(
+			caption,
+			Ovr.group_average(members, skill, profile.mission_type),
+			OCHRE if primary else RULE_BRIGHT,
+			-1,
+			caption_width))
+	return box
 
 
 static func trait_color(polarity: int) -> Color:

@@ -32,6 +32,7 @@ func _initialize() -> void:
 	var roster := _build_reference_roster(rng)
 
 	_section_breakdown(roster, rng)
+	_section_ratings(roster, rng)
 	_section_composition_rules(roster, rng)
 	_section_monte_carlo(roster, rng)
 	_section_economy(roster, rng)
@@ -105,6 +106,104 @@ func _section_breakdown(roster: Array[OperatorData], rng: RandomNumberGenerator)
 	print("  [check] modifiers sum to squad score, drift %.6f  %s" % [
 		drift, "OK" if drift < 0.001 else "FAIL",
 	])
+
+
+# --- 1b. Ratings -------------------------------------------------------------
+
+## Four promises the rating system makes to the player, checked rather than
+## commented. Each one is something the UI states outright, so a failure here is
+## a screen telling a lie rather than a number being slightly off.
+func _section_ratings(roster: Array[OperatorData], rng: RandomNumberGenerator) -> void:
+	var E := GameEnums
+	print("")
+	print("--- 1b. RATINGS ---")
+
+	print("  %-26s %8s %s" % ["OPERATOR", "OVERALL", "BEST / WORST WORK"])
+	for op in roster:
+		var ranked := Ovr.ranked_work(op)
+		print("  %-26s %8d  %s %d  ·  %s %d" % [
+			op.display_label(), Ovr.overall(op),
+			GameEnums.mission_type_name(ranked[0]["type"]), int(ranked[0]["rating"]),
+			GameEnums.mission_type_name(ranked[-1]["type"]), int(ranked[-1]["rating"]),
+		])
+
+	# 1. The squad rating on the briefing IS the skill half of the breakdown.
+	# Every screen states the rating as though it were the same number the
+	# resolver used; this is the only thing making that true.
+	var mission := MissionFactory.create(
+		rng, E.MissionType.SABOTAGE, MissionFactory.Grade.STANDARD)
+	var squad := _squad(
+		[roster[3], roster[1], roster[4]],
+		[E.Role.ENGINEER, E.Role.SCOUT, E.Role.MARKSMAN]
+	)
+	var profile := MissionResolver.profile_for(mission.mission_type)
+	var report := MissionResolver.preview(squad, mission)
+
+	var skill_total := 0.0
+	for m in report.modifiers:
+		if m.source == E.ModifierSource.SKILL:
+			skill_total += m.value
+	var rating: float = Ovr.squad_rating(squad, profile)
+	print("")
+	print("  Squad rating %.2f vs the breakdown's skill lines %.2f" % [rating, skill_total])
+	print("  [check] the rating is the breakdown, drift %.6f  %s" % [
+		absf(rating - skill_total),
+		"OK" if absf(rating - skill_total) < 0.001 else "FAIL"])
+
+	# 2. Adding a body can never lower the rating. The whole reason the resolver
+	# divides by a fixed denominator — and the reason "short-handed" is a note
+	# rather than a penalty.
+	var growing := Squad.new()
+	var previous := -1.0
+	var monotonic := true
+	for op in roster:
+		growing.add(op)
+		var current: float = Ovr.squad_rating(growing, profile)
+		if current < previous - 0.001:
+			monotonic = false
+		previous = current
+	print("  [check] a rating never falls for bringing somebody: %s" % [
+		"OK" if monotonic else "FAIL"])
+
+	# 3. The local rating must genuinely REORDER the roster against the overall
+	# one. If it never does, every screen showing both is showing one number
+	# twice and roadmap2 V1 §2 has bought nothing.
+	var example := ""
+	for a in roster:
+		for b in roster:
+			if a == b or Ovr.overall(a) <= Ovr.overall(b):
+				continue
+			for mission_type in E.MissionType.values():
+				if Ovr.on_type(a, mission_type) >= Ovr.on_type(b, mission_type):
+					continue
+				if example.is_empty():
+					example = "%s rates %d overall to %s's %d, but %d to %d on %s work" % [
+						a.short_label(), Ovr.overall(a),
+						b.short_label(), Ovr.overall(b),
+						Ovr.on_type(a, mission_type), Ovr.on_type(b, mission_type),
+						GameEnums.mission_type_name(mission_type).to_lower(),
+					]
+	if not example.is_empty():
+		print("  %s" % example)
+	print("  [check] the job reorders the roster: %s" % [
+		"OK" if not example.is_empty() else "FAIL"])
+
+	# 4. A rating reads capability and nothing else, so it cannot be run backwards
+	# into the success chance v0.17 took off the screen. Same person, wrecked.
+	var subject: OperatorData = roster[0]
+	var before: int = Ovr.on_type(subject, E.MissionType.ASSAULT)
+	var solo := _squad([subject], [E.Role.ASSAULT])
+	var fresh_score: float = MissionResolver.preview(solo, mission).squad_score
+	subject.fatigue = 95
+	subject.morale = 10
+	var after: int = Ovr.on_type(subject, E.MissionType.ASSAULT)
+	var wrecked_score: float = MissionResolver.preview(solo, mission).squad_score
+	subject.fatigue = 0
+	subject.morale = Balance.MORALE_START
+	print("  Exhausted and demoralised: rating %d -> %d, squad score %.1f -> %.1f" % [
+		before, after, fresh_score, wrecked_score])
+	print("  [check] condition moves the score and not the rating: %s" % [
+		"OK" if before == after and wrecked_score < fresh_score else "FAIL"])
 
 
 # --- 2. Composition rules from the design doc --------------------------------

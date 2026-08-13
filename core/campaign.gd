@@ -522,7 +522,9 @@ func _roll_production() -> Array:
 			continue
 
 		var made: ItemData = candidates[rng.randi() % candidates.size()]
-		state.inventory.append(ItemInstance.create(made.id))
+		var surplus := ItemInstance.create(made.id)
+		ItemHistory.record_build(surplus, state.day)
+		state.inventory.append(surplus)
 		news.append({
 			"title": "%s surplus" % FacilityLibrary.get_facility(facility_id).display_name,
 			"line": "The line turned out %s more than the company needs this week. It will sell." % (
@@ -575,7 +577,9 @@ func buy_item(item: ItemData) -> bool:
 		return false
 
 	state.diamonds -= item.price
-	state.inventory.append(ItemInstance.create(item.id))
+	var bought := ItemInstance.create(item.id)
+	ItemHistory.record_purchase(bought, state.day)
+	state.inventory.append(bought)
 	item_bought.emit(item)
 	return true
 
@@ -641,6 +645,7 @@ func equip(op: OperatorData, instance: ItemInstance, slot: int) -> bool:
 			return false
 
 	op.set_slot_instance(slot, instance)
+	ItemHistory.record_issue(instance, op, state.day)
 	return true
 
 
@@ -737,6 +742,7 @@ func _tick_workshop() -> void:
 			# rebuilt rifle is never a new one, which is what stops repair being
 			# an infinite loop and gives crafting something to be for.
 			job.instance.repair()
+			ItemHistory.record_rebuild(job.instance, state.day)
 
 			# Straight back to whoever it came off, if they are still here and
 			# their hands are still empty. If they filled the slot meanwhile,
@@ -768,7 +774,9 @@ func _tick_workshop() -> void:
 					"good": false,
 				})
 				continue
-			state.inventory.append(ItemInstance.create(job.item_id))
+			var built := ItemInstance.create(job.item_id)
+			ItemHistory.record_build(built, state.day)
+			state.inventory.append(built)
 			_pending_news.append({
 				"title": "Built in-house",
 				"line": "%s came off the bench. Nobody sells these." % (
@@ -931,6 +939,8 @@ func _resolve(deployment: Deployment, withdrawal: bool = false) -> void:
 	report.story = MissionStory.write(report, rng)
 	_settle_reputation(report, dead.size())
 	_settle_client(report, dead.size())
+	# After the casualties are known, so the place remembers what it cost.
+	RegionLog.record_contract(state, report)
 	mission_resolved.emit(report)
 
 
@@ -1010,11 +1020,18 @@ func _wear_kit(deployment: Deployment, report: MissionReport, dead: Array) -> vo
 
 	for op in deployment.squad.members():
 		var killed: bool = dead.has(op)
+
+		# Kills belong to the copy that made them, not to the type. A rifle with
+		# eleven is a thing; battle rifles with eleven is a fact about nothing.
+		ItemHistory.record_kills(
+			op.weapon, op, int(report.kills.get(op, 0)), state.day, report.mission)
+
 		for item in op.equipment():
 			var was_serviceable: bool = item.is_serviceable()
 			item.contracts += 1
 			item.wear(base + (Balance.WEAR_ON_DEATH if killed else 0.0))
 			if was_serviceable and not item.is_serviceable():
+				ItemHistory.record_broken(item, state.day, report.mission)
 				report.kit_notes.append(
 					"%s came back unserviceable, and cannot be issued to anybody until the workshop has had a look."
 					% TextUtil.sentence_case(item.definite()))
@@ -1026,8 +1043,12 @@ func _wear_kit(deployment: Deployment, report: MissionReport, dead: Array) -> vo
 		# the headstone holding a rifle keeps one rule true everywhere: exactly
 		# one living operator can be carrying any given copy.
 		for item in op.equipment():
+			# Written before the note below, so the note reads the earned name.
+			var named := ItemHistory.record_loss(item, op, state.day, report.mission)
 			report.kit_notes.append("%s %s signed back in off %s, in the state you would expect." % [
 				TextUtil.sentence_case(item.definite()), item.verb_was(), op.display_label()])
+			if not named.is_empty():
+				report.kit_notes.append(named)
 		op.weapon = null
 		op.gear = null
 
@@ -1091,16 +1112,18 @@ func _award_loot(report: MissionReport) -> void:
 	if candidates.is_empty():
 		return
 	var found: ItemData = candidates[rng.randi() % candidates.size()]
-	state.inventory.append(_found_copy(found.id))
+	state.inventory.append(_found_copy(found.id, report.mission))
 	report.loot.append(found.id)
 
 
 ## Kit picked up in the field has already had a life. It arrives usable and
 ## worn, which is what makes the workshop worth walking to rather than a chore
 ## bolted onto a free gift.
-func _found_copy(item_id: StringName) -> ItemInstance:
-	return ItemInstance.create(item_id, rng.randf_range(
+func _found_copy(item_id: StringName, mission: MissionData = null) -> ItemInstance:
+	var instance := ItemInstance.create(item_id, rng.randf_range(
 		Balance.LOOT_CONDITION_MIN, Balance.LOOT_CONDITION_MAX))
+	ItemHistory.record_found(instance, state.day, mission)
+	return instance
 
 
 ## Anything the squad decided to carry out with them, landed when they land.
@@ -1111,7 +1134,7 @@ func _land_carried_kit(deployment: Deployment, report: MissionReport) -> void:
 	for id in deployment.carried_out:
 		if not state.has_storage_room():
 			return
-		state.inventory.append(_found_copy(id))
+		state.inventory.append(_found_copy(id, report.mission))
 		report.loot.append(id)
 
 

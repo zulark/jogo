@@ -1,19 +1,27 @@
 class_name MissionBriefingPanel
 extends PanelContainer
 
-## Renders a MissionReport as the XCOM-style briefing panel: the odds, and every
-## line that produced them. Reads the report and nothing else — it never
-## calculates, so the number on screen can never disagree with the resolver.
+## Renders a MissionReport as the briefing panel: what the company makes of the
+## job, and every line that produced that view. Reads the report and nothing
+## else — it never calculates, so what is on screen cannot disagree with the
+## resolver.
+##
+## The squad score and the mission difficulty stay, and stay exact. Those are
+## two quantities being COMPARED, which is the judgement the player is here to
+## make. What is gone is the percentage that used to sit under them and answer
+## the question on their behalf — see UiStyle's assessment block.
 
 @onready var _title: Label = %Title
 @onready var _subtitle: Label = %Subtitle
 @onready var _briefing_text: Label = %BriefingText
+@onready var _tests: VBoxContainer = %Tests
 @onready var _breakdown: VBoxContainer = %Breakdown
 @onready var _squad_terms: VBoxContainer = %SquadTerms
 @onready var _score_value: Label = %ScoreValue
 @onready var _difficulty_value: Label = %DifficultyValue
-@onready var _chance_value: Label = %ChanceValue
-@onready var _chance_bar: ProgressBar = %ChanceBar
+@onready var _assessment_word: Label = %AssessmentWord
+@onready var _assessment_note: Label = %AssessmentNote
+@onready var _gauge_slot: HBoxContainer = %GaugeSlot
 
 
 ## Typography is applied here rather than baked into the .tscn, so the palette
@@ -37,8 +45,14 @@ func _ready() -> void:
 		value.add_theme_font_size_override("font_size", UiStyle.SIZE_HEADING)
 		value.add_theme_color_override("font_color", UiStyle.TEXT)
 
-	_chance_value.add_theme_font_override("font", UiStyle.mono())
-	_chance_value.add_theme_font_size_override("font_size", UiStyle.SIZE_DISPLAY)
+	# The condensed face, not the monospace one. Monospace is this project's
+	# signal that a figure is meant to be compared against another figure, and
+	# the assessment is the one thing on this panel that is deliberately not.
+	_assessment_word.add_theme_font_override("font", UiStyle.display())
+	_assessment_word.add_theme_font_size_override("font_size", UiStyle.SIZE_TITLE)
+
+	_assessment_note.add_theme_font_size_override("font_size", UiStyle.SIZE_SMALL)
+	_assessment_note.add_theme_color_override("font_color", UiStyle.TEXT_2)
 
 
 func show_report(report: MissionReport) -> void:
@@ -56,6 +70,8 @@ func show_report(report: MissionReport) -> void:
 
 	_briefing_text.text = report.mission.briefing
 	_briefing_text.visible = not report.mission.briefing.is_empty()
+
+	_build_tests(report)
 
 	for child in _breakdown.get_children():
 		child.queue_free()
@@ -81,20 +97,49 @@ func show_report(report: MissionReport) -> void:
 	_score_value.text = "%.1f" % report.squad_score
 	_difficulty_value.text = "%.1f" % report.difficulty
 
-	var percent: int = report.chance_percent()
-	_chance_value.text = "%d%%" % percent
-	_chance_bar.value = percent
+	var color := UiStyle.assessment_color(report)
+	_assessment_word.text = UiStyle.assessment_word(report)
+	_assessment_word.add_theme_color_override("font_color", color)
+	_assessment_note.text = UiStyle.assessment_note(report)
 
-	var odds_color: Color = UiStyle.odds_color(percent)
-	_chance_value.add_theme_color_override("font_color", odds_color)
+	for child in _gauge_slot.get_children():
+		child.queue_free()
+	_gauge_slot.add_child(
+		UiStyle.band_gauge(UiStyle.assessment_band(report), color, 22, true))
 
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = odds_color
-	fill.corner_radius_top_left = 3
-	fill.corner_radius_top_right = 3
-	fill.corner_radius_bottom_left = 3
-	fill.corner_radius_bottom_right = 3
-	_chance_bar.add_theme_stylebox_override("fill", fill)
+
+## What the job tests, and what the squad in front of it actually brings.
+##
+## The block sits above the breakdown rather than inside it because it answers a
+## different question. The breakdown is an account of a number that has already
+## been decided; this is the requirement the player is deciding against, and a
+## requirement below the fold is a requirement discovered afterwards.
+##
+## The bars are the squad's plain AVERAGE in each tested skill — where they are
+## thin — and deliberately not an aggregate rating. There is no fourth figure
+## here on purpose: SQUAD SCORE and MISSION DIFFICULTY below already answer "is
+## this enough", the rows on the left answer "is this person right for it", and
+## a third total would only be those two numbers wearing a different hat.
+func _build_tests(report: MissionReport) -> void:
+	for child in _tests.get_children():
+		child.queue_free()
+
+	var profile := MissionResolver.profile_for(report.mission.mission_type)
+	_tests.visible = profile != null
+	if profile == null:
+		return
+
+	var members: Array = report.squad.members() if report.squad != null else []
+
+	_tests.add_child(UiStyle.eyebrow("What this work tests"))
+	_tests.add_child(UiStyle.work_emphasis_block(profile, members))
+
+	# Size is part of what the job asks for and belongs with the rest of it. The
+	# breakdown says so too, but only once the squad is already the wrong size.
+	var size_note := UiStyle.text(
+		Ovr.size_note(profile), UiStyle.SIZE_CAPTION, UiStyle.TEXT_3)
+	size_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tests.add_child(size_note)
 
 
 func _make_heading(content: String, is_first: bool) -> Control:

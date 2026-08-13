@@ -18,6 +18,7 @@ func _initialize() -> void:
 	_incidents()
 	_field_events()
 	_resumes()
+	_item_histories()
 	_progression()
 	quit()
 
@@ -269,6 +270,114 @@ func _resumes() -> void:
 	rookie.trainees = ["A"]
 	print("")
 	print("  %s" % rookie.resume())
+
+	# The reported case, built exactly: a Nigerian sergeant second class with
+	# eleven contracts elsewhere, nothing here yet, combat 85, no-nonsense.
+	var reported := OperatorFactory.create(campaign.rng, GameEnums.Role.ASSAULT)
+	reported.operator_name = "Zainab Abubakar"
+	reported.callsign = "Husk"
+	reported.nationality = &"nigeria"
+	reported.rank = GameEnums.Rank.SERGEANT_SECOND
+	reported.prior_service = 11
+	reported.missions_completed = 0
+	reported.missions_failed = 0
+	reported.confirmed_kills = 0
+	reported.saves = 0
+	reported.traits = []
+	reported.trained_by = ""
+	reported.trainees = []
+	reported.age = 34
+	for skill in GameEnums.Skill.values():
+		reported.skills[skill] = 40
+	reported.skills[GameEnums.Skill.COMBAT] = 85
+	reported.personality[GameEnums.PersonalityAxis.DISCIPLINE] = 82
+	reported.personality[GameEnums.PersonalityAxis.AGGRESSION] = 55
+	reported.personality[GameEnums.PersonalityAxis.BRAVERY] = 55
+	reported.personality[GameEnums.PersonalityAxis.SOCIABILITY] = 45
+	print("")
+	print("  [reported case] %s" % reported.resume())
+
+	# An instructor and somebody the years have caught up with, so the two
+	# permanent status facts get read.
+	var teacher := OperatorFactory.create(campaign.rng, -1, OperatorFactory.Tier.ELITE)
+	teacher.career_track = GameEnums.CareerTrack.INSTRUCTOR
+	teacher.rank = GameEnums.Rank.CAPTAIN
+	teacher.missions_completed = 14
+	teacher.missions_failed = 2
+	teacher.prior_service = 9
+	teacher.trainees = ["A", "B", "C"]
+	print("")
+	print("  [instructor]    %s" % teacher.resume())
+
+	var old_hand := OperatorFactory.create(campaign.rng, -1, OperatorFactory.Tier.VETERAN)
+	old_hand.age = 47
+	old_hand.missions_completed = 6
+	old_hand.missions_failed = 0
+	old_hand.prior_service = 0
+	print("")
+	print("  [ageing]        %s" % old_hand.resume())
+
+
+## A singular, a grammatical plural and a mass noun, each taken through a whole
+## life. The class of the noun decides the article, the verb and the pronoun in
+## every line, so all three have to be read side by side.
+const _ITEM_CLASSES := [&"battle_rifle", &"shaped_charges", &"altitude_kit"]
+
+
+func _item_histories() -> void:
+	_rule("ITEM SERVICE RECORDS")
+	var campaign := Campaign.new(null, SEED + 41)
+	campaign.start_new_company(6)
+	var state := campaign.state
+	var mission := MissionFactory.create_for_board(campaign.rng, {})
+	var second := MissionFactory.create_for_board(campaign.rng, {})
+
+	var carrier: OperatorData = state.roster[0]
+	var heir: OperatorData = state.roster[1]
+	var estate: Array[ItemInstance] = []
+
+	for item_id in _ITEM_CLASSES:
+		var instance := ItemInstance.create(item_id)
+		ItemHistory.record_purchase(instance, 3)
+		ItemHistory.record_issue(instance, carrier, 5)
+		ItemHistory.record_kills(instance, carrier, 4, 9, mission)
+		instance.contracts = 6
+		ItemHistory.record_broken(instance, 14, mission)
+		instance.wear(85.0)
+		instance.repair()
+		ItemHistory.record_rebuild(instance, 17)
+		var named := ItemHistory.record_loss(instance, carrier, 22, second)
+		ItemHistory.record_issue(instance, heir, 24)
+		estate.append(instance)
+
+		print("")
+		print("  --- %s" % instance.display_name())
+		if not named.is_empty():
+			print("      debrief | %s" % named)
+		for line in ItemHistory.lines(instance):
+			print("      %s" % line)
+
+	# What the cemetery says about what they left behind, one item and several.
+	print("")
+	print("  --- headstone, %s" % carrier.display_label())
+	print("      one   | %s" % ItemHistory.memorial_line(carrier, [estate[0]]))
+	print("      many  | %s" % ItemHistory.memorial_line(carrier, estate))
+
+	# And the ordinary case, which is most of them: bought last week, never used.
+	var fresh := ItemInstance.create(&"night_optics")
+	ItemHistory.record_purchase(fresh, 2)
+	print("")
+	print("  --- %s (nothing has happened to it)" % fresh.display_name())
+	for line in ItemHistory.lines(fresh):
+		print("      %s" % line)
+
+	# Recovered off a contract rather than bought, so the other origin gets read.
+	var salvaged := ItemInstance.create(&"plate_carrier", 51.0)
+	ItemHistory.record_found(salvaged, 8, mission)
+	print("")
+	print("  --- %s" % salvaged.display_name())
+	for line in ItemHistory.lines(salvaged):
+		print("      %s" % line)
 
 
 func _progression() -> void:

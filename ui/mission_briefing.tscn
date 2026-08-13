@@ -56,6 +56,11 @@ theme_override_font_sizes/font_size = 13
 autowrap_mode = 3
 text = ""
 
+[node name="Tests" type="VBoxContainer" parent="Margin/Root"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 3
+
 [node name="TopRule" type="HSeparator" parent="Margin/Root"]
 layout_mode = 2
 
@@ -116,28 +121,34 @@ theme_override_font_sizes/font_size = 15
 text = "0.0"
 horizontal_alignment = 2
 
-[node name="ChanceRow" type="HBoxContainer" parent="Margin/Root"]
+[node name="AssessmentRow" type="HBoxContainer" parent="Margin/Root"]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="ChanceLabel" type="Label" parent="Margin/Root/ChanceRow"]
+[node name="AssessmentLabel" type="Label" parent="Margin/Root/AssessmentRow"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.925, 0.937, 0.949, 1)
 theme_override_font_sizes/font_size = 20
-text = "SUCCESS CHANCE"
+text = "OUR ASSESSMENT"
 
-[node name="ChanceBar" type="ProgressBar" parent="Margin/Root/ChanceRow"]
+[node name="GaugeSlot" type="HBoxContainer" parent="Margin/Root/AssessmentRow"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 22)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 4
-show_percentage = false
 
-[node name="ChanceValue" type="Label" parent="Margin/Root/ChanceRow"]
+[node name="AssessmentWord" type="Label" parent="Margin/Root/AssessmentRow"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(72, 0)
+custom_minimum_size = Vector2(150, 0)
 layout_mode = 2
 theme_override_font_sizes/font_size = 26
-text = "0%"
+text = "—"
 horizontal_alignment = 2
+
+[node name="AssessmentNote" type="Label" parent="Margin/Root"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.659, 0.69, 0.659, 1)
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+text = ""

@@ -15,6 +15,7 @@ signal assemble_requested(mission: MissionData)
 @onready var _list_scroll: ScrollContainer = %ListScroll
 @onready var _list: VBoxContainer = %ContractList
 @onready var _side: PanelContainer = %Side
+@onready var _side_head: VBoxContainer = %SideHead
 @onready var _side_box: VBoxContainer = %SideBox
 @onready var _assemble_button: Button = %AssembleButton
 @onready var _scout_button: Button = %ScoutButton
@@ -63,6 +64,8 @@ func refresh() -> void:
 		child.queue_free()
 	for child in _side_box.get_children():
 		child.queue_free()
+	for child in _side_head.get_children():
+		child.queue_free()
 
 	if _showing_side_jobs:
 		_refresh_side_jobs(state)
@@ -81,19 +84,46 @@ func refresh() -> void:
 
 # --- Contract detail ---------------------------------------------------------
 
+## The panel is in two halves, and which half a thing lands in is the whole of
+## the information hierarchy here.
+##
+## The HEAD is pinned and never scrolls: what this job is, how hard it is, and
+## what the company makes of it. That is the decision, and it used to be the
+## part that fell off the bottom — the assessment sat below the fold behind four
+## blocks of supporting prose, so the one thing the player is on this screen to
+## learn was the one thing they had to go looking for.
+##
+## The BODY scrolls: the briefing, what the job asks for, the client, the
+## ground. All of it worth reading, none of it worth pushing the decision off
+## the screen.
 func _build_contract_detail() -> void:
 	if _selected == null:
 		_scout_button.visible = false
-		_side_box.add_child(UiStyle.text(
+		_side_head.add_child(UiStyle.text(
 			"Pick a contract off the map.", UiStyle.SIZE_BODY, UiStyle.TEXT_3))
-		_side_box.add_child(UiStyle.spacer(8))
-		_side_box.add_child(UiStyle.text(
+		_side_head.add_child(UiStyle.spacer(8))
+		var legend := UiStyle.text(
 			"Marker size is difficulty. Colour is how lethal it is if it goes wrong.",
-			UiStyle.SIZE_SMALL, UiStyle.TEXT_3))
+			UiStyle.SIZE_SMALL, UiStyle.TEXT_3)
+		legend.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_side_head.add_child(legend)
+
+		_side_head.add_child(UiStyle.spacer(4))
+		var places := UiStyle.text(
+			"Ochre places are ones the company has worked, heavier the more often. A ring means somebody died there.",
+			UiStyle.SIZE_SMALL, UiStyle.TEXT_3)
+		places.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_side_head.add_child(places)
 		return
 
 	var mission := _selected
-	_side_box.add_child(UiStyle.title(mission.title, UiStyle.SIZE_TITLE))
+	_build_contract_head(mission)
+	_build_contract_body(mission)
+	_refresh_scout_button()
+
+
+func _build_contract_head(mission: MissionData) -> void:
+	_side_head.add_child(UiStyle.title(mission.title, UiStyle.SIZE_TITLE))
 
 	# The kind of work and the money are the two facts that decide whether a
 	# contract is worth reading at all, so they lead rather than sitting in a
@@ -110,46 +140,45 @@ func _build_contract_detail() -> void:
 	where.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	where.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	headline.add_child(where)
-	_side_box.add_child(headline)
+	_side_head.add_child(headline)
 
+	_side_head.add_child(UiStyle.rule())
+
+	# Threat, danger and duration share one row. They are three captioned figures
+	# of the same shape, and stacking them cost sixty pixels of pinned height for
+	# nothing — height this panel spends better on the assessment below.
+	var stats := HBoxContainer.new()
+	stats.add_theme_constant_override("separation", 10)
+	var threat := UiStyle.threat_block(mission.difficulty)
+	UiStyle.grow(threat)
+	stats.add_child(threat)
+	var danger := UiStyle.stat(
+		"Danger", "%.0f" % mission.risk, UiStyle.risk_color(mission.risk), 70)
+	danger.tooltip_text = "How likely the people you send come home hurt or not at all. Separate from threat — a quiet job in a lethal place is low threat and high danger."
+	stats.add_child(danger)
+	stats.add_child(UiStyle.stat("Days", str(mission.duration_days), UiStyle.TEXT_2, 50))
+	_side_head.add_child(stats)
+
+	_side_head.add_child(UiStyle.rule())
+
+	# Can we even do this? Answered before the player builds a squad to find out.
+	_side_head.add_child(_capability_readout(mission))
+
+
+func _build_contract_body(mission: MissionData) -> void:
 	if not mission.briefing.is_empty():
-		_side_box.add_child(UiStyle.spacer(4))
+		_side_box.add_child(UiStyle.eyebrow("Briefing"))
 		var brief := UiStyle.text(mission.briefing, UiStyle.SIZE_SMALL, UiStyle.TEXT_2)
 		brief.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_side_box.add_child(brief)
-
-	_side_box.add_child(UiStyle.spacer(6))
-	_side_box.add_child(UiStyle.rule())
-	_side_box.add_child(UiStyle.spacer(6))
-
-	# Threat leads, on its own line and in words. It is the number the squad score
-	# is measured against, so it is the one the player is actually deciding on.
-	_side_box.add_child(UiStyle.threat_block(mission.difficulty))
-	_side_box.add_child(UiStyle.spacer(6))
-
-	var stats := HBoxContainer.new()
-	stats.add_theme_constant_override("separation", 4)
-	var danger := UiStyle.stat(
-		"Danger", "%.0f" % mission.risk, UiStyle.risk_color(mission.risk), 78)
-	danger.tooltip_text = "How likely the people you send come home hurt or not at all. Separate from threat — a quiet job in a lethal place is low threat and high danger."
-	stats.add_child(danger)
-	stats.add_child(UiStyle.stat("Days", str(mission.duration_days), UiStyle.TEXT_2, 54))
-	stats.add_child(UiStyle.stat(
-		"Pays", str(mission.fee_for(Game.campaign.state.reputation)), UiStyle.MINT, 92))
-	_side_box.add_child(stats)
+		_side_box.add_child(UiStyle.spacer(2))
 
 	# What the job actually asks for, stated before the player opens the squad
 	# builder. Finding out that escort work wants five people and a medic by
 	# assembling four and watching the score drop is a puzzle with the pieces
 	# face down.
-	_side_box.add_child(UiStyle.spacer(6))
 	_side_box.add_child(UiStyle.eyebrow("What it asks for"))
 	_side_box.add_child(_requirements_readout(mission))
-
-	# Can we even do this? Answered before the player builds a squad to find out.
-	_side_box.add_child(UiStyle.spacer(6))
-	_side_box.add_child(UiStyle.eyebrow("Chance of success"))
-	_side_box.add_child(_capability_readout(mission))
 
 	var region_hazard := mission.region()
 	if region_hazard != null and region_hazard.hazard != GameEnums.Hazard.NONE:
@@ -192,6 +221,18 @@ func _build_contract_detail() -> void:
 		ground.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_side_box.add_child(ground)
 
+	# What the company already knows about this place from having been there.
+	# Absent entirely the first time, which is the point — somewhere the company
+	# has worked four times and buried two people should not read like somewhere
+	# it has only ever seen on a map.
+	var history := RegionLog.summary(Game.campaign.state, mission.region_id)
+	if not history.is_empty():
+		_side_box.add_child(UiStyle.spacer(4))
+		_side_box.add_child(UiStyle.eyebrow("Our record here"))
+		var record := UiStyle.text(history, UiStyle.SIZE_SMALL, UiStyle.TEXT_2)
+		record.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_side_box.add_child(record)
+
 	_side_box.add_child(UiStyle.spacer(4))
 	var expiry_color: Color = (
 		UiStyle.RUST if mission.expires_in_days <= 2 else UiStyle.TEXT_3)
@@ -203,8 +244,6 @@ func _build_contract_detail() -> void:
 	var expiry_label := UiStyle.text(expiry, UiStyle.SIZE_SMALL, expiry_color)
 	expiry_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_side_box.add_child(expiry_label)
-
-	_refresh_scout_button()
 
 
 ## The best squad the company could field, and what it would score. A bar the
@@ -227,14 +266,8 @@ func _requirements_readout(mission: MissionData) -> Control:
 		box.add_child(vague)
 		return box
 
-	var low: int = maxi(1, profile.ideal_squad_size - profile.size_tolerance)
-	var high: int = profile.ideal_squad_size + profile.size_tolerance
-	var size_line: String = "Wants %s." % TextUtil.count(
-		profile.ideal_squad_size, "person", "people")
-	if high > low:
-		size_line = "Wants %s — anything from %d to %d costs nothing." % [
-			TextUtil.count(profile.ideal_squad_size, "person", "people"), low, high]
-	var size_label := UiStyle.text(size_line, UiStyle.SIZE_SMALL, UiStyle.TEXT_2)
+	var size_label := UiStyle.text(
+		Ovr.size_note(profile), UiStyle.SIZE_SMALL, UiStyle.TEXT_2)
 	size_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(size_label)
 
@@ -246,58 +279,50 @@ func _requirements_readout(mission: MissionData) -> Control:
 			roles.add_child(UiStyle.role_tag(role, UiStyle.SIZE_SMALL))
 		box.add_child(roles)
 
-	# The two or three skills carrying the most weight. The rest are noise at
-	# this stage — the player is deciding whether to open the builder at all.
-	var ranked: Array = []
-	for skill in profile.skill_weights:
-		ranked.append({"skill": skill, "weight": float(profile.skill_weights[skill])})
-	ranked.sort_custom(func(a, b): return a["weight"] > b["weight"])
-
-	var named: Array = []
-	for entry in ranked.slice(0, 3):
-		if entry["weight"] > 0.0:
-			named.append(GameEnums.skill_name(entry["skill"]).to_lower())
-	if not named.is_empty():
-		var tested := UiStyle.text(
-			"Tested on %s." % TextUtil.join_names(named),
-			UiStyle.SIZE_SMALL, UiStyle.TEXT_2)
-		tested.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		box.add_child(tested)
+	# What the job tests, split into what it is chiefly about and what it merely
+	# also wants. "Tested on stealth, tech and combat" gave three skills equal
+	# billing where the profile weights them 0.55/0.25/0.20 — true, and no use for
+	# choosing between two people who are strong in different ones.
+	#
+	# No squad here, so this prints the requirement and nothing else. The same
+	# block on the briefing panel draws a bar per skill, because there a squad
+	# exists to measure against it.
+	box.add_child(UiStyle.spacer(2))
+	box.add_child(UiStyle.work_emphasis_block(profile))
 
 	return box
 
 
+## What the company makes of this job, measured against the best squad it could
+## actually put on it.
+##
+## This used to be a percentage. It is a band and a short list of what is wrong
+## now, because the percentage answered the question the board exists to ask.
+## "95%" ends the screen; "Favourable, but you are two over strength for quiet
+## work and Ash is exhausted" sends the player to the squad builder with
+## something to do when they get there.
+##
+## Deliberately still no names. Telling the player exactly who to send removes
+## the decision this screen sets up — the band says whether the contract is
+## within reach, and working out who goes is the game.
 func _capability_readout(mission: MissionData) -> Control:
 	var squad := Game.campaign.best_available_squad(mission)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
+	box.add_theme_constant_override("separation", 6)
 
 	if squad.size() == 0:
+		box.add_child(UiStyle.eyebrow("Our assessment"))
 		box.add_child(UiStyle.text(
-			"Nobody is free to take this.", UiStyle.SIZE_SMALL, UiStyle.RUST))
+			"Nobody is free to take this.", UiStyle.SIZE_BODY, UiStyle.RUST))
 		return box
 
 	var report := Game.campaign.preview_mission(squad, mission)
-	var percent := report.chance_percent()
+	box.add_child(UiStyle.assessment_block(report, "Best we could field"))
 
-	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 10)
-	# Said as odds, not as "readiness". Readiness sat next to Threat and Risk as a
-	# third abstract number; "chance of success" is the only one of the three the
-	# player can act on directly, and saying so removes the ambiguity.
-	var caption := UiStyle.text(
-		"If we sent the best squad we could field", UiStyle.SIZE_SMALL, UiStyle.TEXT_2)
-	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	UiStyle.grow(caption)
-	header.add_child(caption)
-	header.add_child(UiStyle.data(
-		"%d%%" % percent, UiStyle.SIZE_HEADING, UiStyle.odds_color(percent)))
-	box.add_child(header)
-	box.add_child(UiStyle.meter_bar(percent, UiStyle.odds_color(percent), 300))
-
-	# Deliberately no names. Telling the player exactly who to send removes the
-	# decision this screen exists to set up — the bar says whether the contract
-	# is within reach, and working out who goes is the game.
+	var concerns := UiStyle.assessment_concerns(report, 2)
+	if not concerns.is_empty():
+		box.add_child(UiStyle.eyebrow("Concerns"))
+		box.add_child(UiStyle.concerns_readout(report, 2))
 	return box
 
 

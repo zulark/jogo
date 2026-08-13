@@ -44,6 +44,7 @@ func _initialize() -> void:
 	_check_passive_income()
 	_check_event_pools()
 	_check_workshop()
+	_check_item_history()
 	_check_save_round_trip(campaign)
 
 	print("")
@@ -1303,6 +1304,132 @@ func _check_workshop() -> void:
 		"OK" if restored else "FAIL"])
 
 
+## Item histories, measured through the campaign rather than by calling the
+## writer. The whole claim of the feature is that a rifle accumulates a record
+## from ordinary play, so a test that arranged the record by hand would prove
+## nothing about the game.
+func _check_item_history() -> void:
+	print("")
+	print("--- ITEM HISTORIES ---")
+
+	var campaign := Campaign.new(null, SEED + 909)
+	campaign.start_new_company(6)
+	var state := campaign.state
+	state.diamonds = 400000
+	state.facilities[FacilityLibrary.ARMOURY] = 3
+	state.facilities[FacilityLibrary.QUARTERMASTER] = 3
+
+	var rifle := ItemLibrary.get_item(&"battle_rifle")
+	campaign.buy_item(rifle)
+	campaign.buy_item(rifle)
+	var copies: Array[ItemInstance] = []
+	for instance in state.inventory:
+		if instance.item_id == &"battle_rifle":
+			copies.append(instance)
+
+	print("  [check] a bought copy records where it came from: %s" % [
+		"OK" if copies.size() == 2 and copies[0].origin == ItemHistory.ORIGIN_BOUGHT else "FAIL"])
+	print("  [check] kit nobody has used reports no history: %s" % [
+		"OK" if not copies[0].has_history() else "FAIL"])
+
+	var carrier: OperatorData = state.roster[0]
+	campaign.equip(carrier, copies[0], ItemData.Slot.WEAPON)
+	print("  [check] issuing a copy records whose hands it is in: %s" % [
+		"OK" if ItemHistory.holders(copies[0]) == [carrier.display_label()] else "FAIL"])
+
+	# A bench round trip is not a change of hands. Logging it as one would fill a
+	# rifle's record with the fact that it was cleaned.
+	copies[0].wear(45.0)
+	campaign.start_repair(copies[0])
+	var guard := 0
+	while not state.workshop.is_empty() and guard < 20:
+		campaign.end_day()
+		guard += 1
+	print("  [check] a trip to the bench is not a change of hands: %s" % [
+		"OK" if ItemHistory.holders(copies[0]).size() == 1 else "FAIL"])
+
+	# Kills belong to the copy that made them. The identical rifle on the rack is
+	# the control, and it is the claim an array of item ids could never express.
+	var kills_before: int = copies[0].kills
+	var deaths := 0
+	var named: ItemInstance = null
+
+	for attempt in 60:
+		var lethal := MissionFactory.create(campaign.rng, GameEnums.MissionType.ASSAULT)
+		lethal.risk = 100.0
+		lethal.duration_days = 1
+		state.board.append(lethal)
+
+		var squad := Squad.new()
+		var free := state.deployable_operators()
+		if free.is_empty():
+			break
+		for op in free:
+			squad.add(op, op.preferred_role)
+		squad.set_leader(free[0])
+		if campaign.deploy(squad, lethal) == null:
+			break
+
+		var inner := 0
+		while not state.deployments.is_empty() and inner < 10:
+			campaign.end_day()
+			inner += 1
+
+		deaths = state.cemetery.size()
+		for instance in state.inventory:
+			if not instance.earned_name.is_empty() and named == null:
+				named = instance
+		if named != null:
+			break
+
+		# Put the company back on its feet so the loop measures lethality rather
+		# than attrition: everyone healed, the roster topped back up, kit reissued.
+		for op in state.roster:
+			op.status = GameEnums.OperatorStatus.AVAILABLE
+			op.days_unavailable = 0
+			op.fatigue = 0
+			op.morale = Balance.MORALE_START
+		while state.living_roster_size() < 4:
+			var fresh := OperatorFactory.create(campaign.rng, -1, OperatorFactory.Tier.REGULAR)
+			state.roster.append(fresh)
+		if state.holder_of(copies[0]) == null and copies[0].is_serviceable():
+			campaign.equip(state.roster[0], copies[0], ItemData.Slot.WEAPON)
+
+	print("  [check] kills are credited to the copy that made them (%d on it, %d on the spare): %s" % [
+		copies[0].kills, copies[1].kills,
+		"OK" if copies[0].kills >= kills_before and copies[1].kills == 0 else "FAIL"])
+
+	if named == null:
+		print("  [check] a dead operator's kit takes their name: SKIPPED (%d buried, none carrying)" % deaths)
+	else:
+		print("  [check] a dead operator's kit takes their name (%s): %s" % [
+			named.display_name(), "OK" if named.earned_name.ends_with("'s") else "FAIL"])
+		print("  [check] and the company still owns it: %s" % [
+			"OK" if state.inventory.has(named) and state.holder_of(named) == null else "FAIL"])
+		# A possessive determiner replaces the article. "The Ivory's battle rifle"
+		# is the sentence this arrangement exists to make unreachable.
+		print("  [check] a named copy reads as a possessive, not an article (%s): %s" % [
+			named.definite(), "OK" if not named.definite().begins_with("the ") else "FAIL"])
+
+	# Counter-kit is stores, not somebody's kit.
+	var supplies := ItemInstance.create(&"antimalarials")
+	print("  [check] counter-kit declines a name: %s" % [
+		"OK" if not ItemHistory.can_be_named(supplies) else "FAIL"])
+
+	var path := "user://test_item_history.json"
+	SaveSystem.save(state, path)
+	var loaded := SaveSystem.load_game(path)
+	var restored: ItemInstance = loaded.find_instance(copies[0].uid) if loaded != null else null
+	print("  [check] the record survives a save (%d entries): %s" % [
+		copies[0].history.size(),
+		"OK" if restored != null
+			and restored.history.size() == copies[0].history.size()
+			and restored.kills == copies[0].kills
+			and restored.earned_name == copies[0].earned_name
+			else "FAIL"])
+	SaveSystem.delete_save(path)
+
+
 func _check_save_round_trip(campaign: Campaign) -> void:
 	print("")
 	print("--- SAVE / LOAD ---")
@@ -1336,6 +1463,24 @@ func _check_save_round_trip(campaign: Campaign) -> void:
 		loaded.day, loaded.diamonds, loaded.roster.size(),
 		loaded.deployments.size(), loaded.weekly_payroll()])
 	print("  [check] save round trip preserves the campaign: %s" % ["OK" if same else "FAIL"])
+
+	# The company's record of where it has been. Twelve weeks of contracts must
+	# have written something, and it has to survive the trip — a map that forgets
+	# every place the company worked the moment the game is reloaded is worse
+	# than one that never remembered, because the player has already learned to
+	# read it.
+	var worked := 0
+	var kept := 0
+	for region_id in RegionLibrary.ids():
+		if not RegionLog.has_history(before, region_id):
+			continue
+		worked += 1
+		if RegionLog.entry(loaded, region_id) == RegionLog.entry(before, region_id):
+			kept += 1
+	print("  [check] the company remembers where it has worked (%d regions): %s" % [
+		worked, "OK" if worked > 0 else "FAIL"])
+	print("  [check] and that record survives a save: %s" % [
+		"OK" if worked > 0 and kept == worked else "FAIL"])
 
 	# Deployed operators must come back bound to the roster objects, not copies.
 	var bound := true
@@ -1839,19 +1984,27 @@ func _check_field_events() -> void:
 
 ## The price on the button is the price the player pays.
 ##
-## Options quote the odds either side of the decision — "Odds 58% → 64%" — and
-## both halves are checked against the report itself: the left against the odds
-## before the click, the right against the odds after it.
+## Options quote what they cost in the two units that survived the percentage
+## being removed — "Squad score +6.4, even → workable" — and both halves are
+## checked against the report itself: the figure against the change it actually
+## produces, and the band arrow against the reading either side of the click.
+##
+## This is a stricter check than the one it replaces. The old version compared
+## two percentages, which could agree by accident whenever both were sitting on
+## the clamp; this verifies the arithmetic and the band mapping separately, so
+## an option that quotes a number it does not deliver fails on the number even
+## when the reading happens not to move.
 func _check_field_quotes() -> void:
 	var pattern := RegEx.new()
-	pattern.compile("Odds (\\d+)% → (\\d+)%")
+	pattern.compile("Squad score ([+-][0-9.]+)")
 
 	var probe := _in_the_field(SEED + 7800)
 	var campaign: Campaign = probe["campaign"]
 	var deployment: Deployment = probe["deployment"]
 
 	var quoted := 0
-	var wrong := 0
+	var wrong_score := 0
+	var wrong_band := 0
 	var not_summing := 0
 
 	for i in 40:
@@ -1860,24 +2013,49 @@ func _check_field_quotes() -> void:
 			continue
 
 		for option in event["options"]:
-			var found := pattern.search_all(str(option["detail"]))
-			# Options quoting two outcomes (a roll whose odds are stated) or none
-			# (calling the contract off) are covered by the checks below instead.
+			var detail := str(option["detail"])
+			var found := pattern.search_all(detail)
+			# Options quoting two outcomes (a roll whose odds are stated), or a
+			# price in days or diamonds rather than score, are covered by the
+			# checks below instead.
 			if found.size() != 1:
 				continue
 
 			quoted += 1
-			if int(found[0].get_string(1)) != deployment.report.chance_percent():
-				wrong += 1
+			var promised: float = float(found[0].get_string(1))
+			var score_before: float = deployment.report.squad_score
+			var band_before: int = UiStyle.assessment_band(deployment.report)
+
 			(option["apply"] as Callable).call()
-			if int(found[0].get_string(2)) != deployment.report.chance_percent():
-				wrong += 1
+
+			if absf((deployment.report.squad_score - score_before) - promised) > 0.05:
+				wrong_score += 1
+
+			# Built rather than parsed: the band words contain spaces ("against
+			# us"), and a regex loose enough to catch them is loose enough to
+			# match the wrong thing.
+			#
+			# Searched rather than matched at the end, because most options wrap
+			# the quote in a sentence of their own — "…, even → workable. Danger
+			# +6" — so the price is rarely the last thing on the button.
+			var band_after: int = UiStyle.assessment_band(deployment.report)
+			var expected: String = (
+				"still reads %s" % UiStyle.assessment_word_for(band_after).to_lower()
+				if band_after == band_before
+				else "%s → %s" % [
+					UiStyle.assessment_word_for(band_before).to_lower(),
+					UiStyle.assessment_word_for(band_after).to_lower()])
+			if not detail.contains(expected):
+				wrong_band += 1
+
 			if not _breakdown_sums(deployment.report):
 				not_summing += 1
 			break
 
-	print("  [check] the odds an option quotes are the odds it produces (%d checked): %s" % [
-		quoted, "OK" if quoted >= 5 and wrong == 0 else "FAIL"])
+	print("  [check] the score an option quotes is the score it moves (%d checked): %s" % [
+		quoted, "OK" if quoted >= 5 and wrong_score == 0 else "FAIL"])
+	print("  [check] the reading an option quotes is the reading it produces: %s" % [
+		"OK" if quoted >= 5 and wrong_band == 0 else "FAIL"])
 	print("  [check] the breakdown still sums after a decision in the field: %s" % [
 		"OK" if not_summing == 0 else "FAIL"])
 

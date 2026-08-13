@@ -103,10 +103,28 @@ func _present(report: MissionReport) -> void:
 	_title.add_theme_color_override(
 		"font_color", UiStyle.MINT if report.success else UiStyle.RUST)
 
-	var outcome: String = (
-		"ended from the field at %d%%" % report.chance_percent() if report.withdrew
-		else "rolled %d against %d%%" % [
-			int(report.roll_value * 100.0), report.chance_percent()])
+	# What the company thought going in, not what the dice were.
+	#
+	# The debrief is the one screen that could quietly undo the whole point of
+	# banding the assessment: a player shown "rolled 6 against 95%" four or five
+	# times has learned the exact number behind every band and is back to
+	# optimising a percentage, just with an extra step. So the card reports the
+	# reading the company held rather than the figure underneath it.
+	#
+	# The qualifier is the part worth keeping from the old line. A win off a bad
+	# reading and a loss off a good one are the two outcomes that feel like the
+	# dice rather than the decision, and saying so is what stops a bad result
+	# reading as a punishment for a call that was sound when it was made.
+	var outcome: String
+	if report.withdrew:
+		outcome = "called off from the field, reading %s" % (
+			UiStyle.assessment_word(report).to_lower())
+	else:
+		outcome = "read %s going in" % UiStyle.assessment_word(report).to_lower()
+		if report.success and UiStyle.assessment_band(report) <= 1:
+			outcome += ", and came off anyway"
+		elif not report.success and UiStyle.assessment_band(report) >= 4:
+			outcome += ", and did not come off"
 	_summary.text = "%s  ·  %s for %s  ·  %s  ·  paid %d diamonds" % [
 		report.mission.title,
 		report.mission.region_name(),

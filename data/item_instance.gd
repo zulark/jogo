@@ -33,6 +33,27 @@ var max_condition: float = Balance.CONDITION_NEW
 ## the history the post-v1.0 direction wants, and cheap to keep now.
 var contracts: int = 0
 
+# --- The record --------------------------------------------------------------
+#
+# **Nothing outside ItemHistory may write any of these.** Same rule Bonds has
+# over `op.bonds`, and for the same reason.
+
+## One of ItemHistory's ORIGIN_ ids.
+var origin: StringName = &""
+
+## Confirmed kills made by whoever was holding this copy at the time.
+var kills: int = 0
+
+## What the company calls this one, once it has earned a name. Empty for almost
+## all kit, which is the point.
+var earned_name: String = ""
+
+## Notable moments, oldest first: {kind, day, who, what, value}. Structured
+## rather than prose so the wording is not frozen into every save file.
+var history: Array[Dictionary] = []
+
+const HISTORY_CAP := 24
+
 static var _counter: int = 0
 
 
@@ -56,24 +77,43 @@ func data() -> ItemData:
 
 func display_name() -> String:
 	var item := data()
-	return item.display_name if item != null else "Unknown item"
+	var label: String = item.display_name if item != null else "Unknown item"
+	return "%s %s" % [earned_name, label] if not earned_name.is_empty() else label
 
 
 ## The three prose forms, delegated so a sentence never has to know whether it is
 ## holding a type or a copy. See ItemData for why the article is not guessed.
+##
+## An earned name is a POSSESSIVE — "Ivory's" — and a possessive determiner
+## replaces the article rather than sitting behind it, so a named copy answers
+## the same for both forms and neither says "the". "The Ivory's battle rifle" is
+## the mistake this arrangement makes unreachable.
 func name_in_prose() -> String:
 	var item := data()
 	return item.name_in_prose() if item != null else "unknown item"
 
 
 func indefinite() -> String:
+	if not earned_name.is_empty():
+		return named_prose()
 	var item := data()
 	return item.indefinite() if item != null else "an unknown item"
 
 
 func definite() -> String:
+	if not earned_name.is_empty():
+		return named_prose()
 	var item := data()
 	return item.definite() if item != null else "the unknown item"
+
+
+func named_prose() -> String:
+	return "%s %s" % [earned_name, name_in_prose()]
+
+
+## Whether this copy has done anything worth reading about.
+func has_history() -> bool:
+	return kills > 0 or contracts > 0 or history.size() > 1 or not earned_name.is_empty()
 
 
 func verb_is() -> String:
@@ -233,12 +273,26 @@ func effect_text() -> String:
 # --- Serialisation -----------------------------------------------------------
 
 func to_dict() -> Dictionary:
+	var history_data: Array = []
+	for entry in history:
+		history_data.append({
+			"kind": str(entry.get("kind", "")),
+			"day": int(entry.get("day", 0)),
+			"who": str(entry.get("who", "")),
+			"what": str(entry.get("what", "")),
+			"value": int(entry.get("value", 0)),
+		})
+
 	return {
 		"uid": String(uid),
 		"item_id": String(item_id),
 		"condition": condition,
 		"max_condition": max_condition,
 		"contracts": contracts,
+		"origin": String(origin),
+		"kills": kills,
+		"earned_name": earned_name,
+		"history": history_data,
 	}
 
 
@@ -249,6 +303,20 @@ static func from_dict(data_dict: Dictionary) -> ItemInstance:
 	instance.max_condition = float(data_dict.get("max_condition", Balance.CONDITION_NEW))
 	instance.condition = float(data_dict.get("condition", instance.max_condition))
 	instance.contracts = int(data_dict.get("contracts", 0))
+	instance.origin = StringName(str(data_dict.get("origin", "")))
+	instance.kills = int(data_dict.get("kills", 0))
+	instance.earned_name = str(data_dict.get("earned_name", ""))
+
+	# Field by field rather than wholesale: JSON hands every number back as a float.
+	for entry in data_dict.get("history", []):
+		if entry is Dictionary:
+			instance.history.append({
+				"kind": str(entry.get("kind", "")),
+				"day": int(entry.get("day", 0)),
+				"who": str(entry.get("who", "")),
+				"what": str(entry.get("what", "")),
+				"value": int(entry.get("value", 0)),
+			})
 
 	# Keep the generator ahead of everything the save already used, or a copy
 	# bought after loading would collide with one that came out of the file.

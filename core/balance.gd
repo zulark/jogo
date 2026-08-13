@@ -120,7 +120,7 @@ const MEDIC_HARM_REDUCTION := 0.25
 ## medic is the clearest survivability decision on the squad screen.
 const MEDIC_DEATH_SHARE_RELIEF := 0.30
 
-const WOUND_DAYS_MIN := 4
+const WOUND_DAYS_MIN := 2
 const WOUND_DAYS_MAX := 14
 const TRAUMA_DAYS_MIN := 3
 const TRAUMA_DAYS_MAX := 10

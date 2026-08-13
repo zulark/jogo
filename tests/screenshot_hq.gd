@@ -63,12 +63,33 @@ func _initialize() -> void:
 		{"do": _close_field_decision, "shot": "hq_field_abort_debrief"},
 		{"do": _run_until_losses, "shot": "hq_cemetery"},
 		{"do": func(): _hq._show_tab(TAB_ROSTER), "shot": "hq_roster_career"},
+		{"do": _scroll_operator_sheet, "shot": "hq_roster_sheet"},
 		{"do": _open_hub, "shot": "hq_base"},
 		{"do": _select_a_facility, "shot": "hq_base_facility"},
 		{"do": _open_stocked_market, "shot": "hq_market"},
 		{"do": _open_workshop, "shot": "hq_workshop"},
 		{"do": _open_inventory_drawer, "shot": "hq_drawer_inventory"},
+		# Last, because standing the company down for a month to reach these
+		# leaves the books in a state no earlier capture should be shot in.
+		{"do": _rest_and_show_board, "shot": "hq_contracts_history"},
+		{"do": _open_builder_with_history, "shot": "hq_squad_builder_bonds"},
 	]
+
+
+## The bottom half of a service record — skills, what those skills are worth on
+## each kind of work, temperament, traits. Everything below the fold on that
+## panel went unphotographed until now, which is exactly where a layout breaks
+## without anybody noticing.
+func _scroll_operator_sheet() -> void:
+	# Whatever the field is doing, this shot is about the sheet.
+	_hq.get_node("%IncidentModal").hide()
+	_hq.get_node("%AfterAction").hide()
+
+	var roster = _hq._screen
+	if roster == null:
+		return
+	var scroll: ScrollContainer = roster.get_node("DetailScroll")
+	scroll.scroll_vertical = 100000
 
 
 ## A base worth photographing: some of it built, some of it still an empty plot,
@@ -212,6 +233,76 @@ func _fill_squad() -> void:
 	if builder._squad.size() > 0:
 		builder._squad.set_leader(builder._squad.members()[0])
 	builder.refresh()
+
+
+## The squad builder once the company has a past.
+##
+## Bonds are the point of that screen and cannot exist on day one, so the
+## capture above can never show them however long it is stared at. This one runs
+## after the campaign has been played forward and deliberately picks the people
+## who have history with each other — otherwise the shot is of an empty column
+## and proves nothing.
+## The board once the company has been places.
+##
+## The map draws the company's own record — somewhere it has worked runs ochre
+## and heavier, somewhere it has buried people carries a ring — and none of that
+## can exist in the day-one capture. Without this shot the whole of RegionLog is
+## unphotographed, and a regression in it would be invisible.
+func _rest_and_show_board() -> void:
+	# The drawer from the step before is still open and would sit over this whole
+	# capture — a drawer stays put across screen changes by design.
+	_hq._close_drawer()
+	_hq._incident_modal.hide()
+
+	# Everyone who has been through enough contracts to have history is, by that
+	# same fact, hurt or spent — so at the end of the run above the deployable
+	# list is empty and the builder has nobody to show. Stand the company down
+	# until its veterans can be sent somewhere again.
+	for i in 60:
+		if Game.campaign.state.deployable_operators().size() >= 3:
+			break
+		_hq._on_end_day_pressed()
+		_hq._after_action.hide()
+		_hq._incident_modal.hide()
+
+	_hq._show_tab(TAB_CONTRACTS)
+
+	var state: GameState = Game.campaign.state
+	var worked := 0
+	for region_id in RegionLibrary.ids():
+		if RegionLog.has_history(state, region_id):
+			worked += 1
+	print("  [check] the map has somewhere to remember (%d regions worked): %s" % [
+		worked, "OK" if worked > 0 else "FAIL"])
+
+
+func _open_builder_with_history() -> void:
+	_hq._show_tab(TAB_CONTRACTS)
+	var board: Array = Game.campaign.state.board
+	if board.is_empty():
+		return
+	_hq._open_squad_builder(board[0])
+
+	var builder: Control = _hq._screen
+	if not builder is SquadBuilder:
+		return
+
+	var free: Array = Game.campaign.state.deployable_operators()
+	var ranked: Array = free.duplicate()
+	ranked.sort_custom(func(a, b):
+		return UiStyle.bonds_with(a, free).size() > UiStyle.bonds_with(b, free).size())
+	for i in mini(4, ranked.size()):
+		(builder as SquadBuilder)._squad.add(ranked[i], ranked[i].preferred_role)
+	if (builder as SquadBuilder)._squad.size() > 0:
+		(builder as SquadBuilder)._squad.set_leader(
+			(builder as SquadBuilder)._squad.members()[0])
+	builder.refresh()
+
+	# A capture that quietly shows nothing is worse than no capture: it looks
+	# like the feature works and would survive the feature being deleted.
+	var ties: int = UiStyle.bond_ties((builder as SquadBuilder)._squad.members()).size()
+	print("  [check] the builder has history to show (%d ties): %s" % [
+		ties, "OK" if ties > 0 else "FAIL"])
 
 
 ## Deploy, then end days until the squad comes home, so the after-action modal
@@ -410,10 +501,39 @@ func _force_deployment() -> void:
 
 ## Open the inventory drawer while sitting on another screen — the whole point
 ## of a drawer is that the screen underneath stays put.
+##
+## Opened on the copy with the most on its record, because an unselected panel
+## photographs the empty state and the service record is the half worth checking.
 func _open_inventory_drawer() -> void:
 	_hq._show_tab(TAB_ROSTER)
 	_hq._toggle_drawer("stock", "Inventory",
 		load("res://ui/inventory_screen.tscn"))
+
+	# This save never issued kit to a squad, so nothing in it has a record worth
+	# photographing. Built here through the real writers, the way a played
+	# company accumulates one — sim_campaign.gd is what proves the game does it.
+	var state: GameState = Game.campaign.state
+	var rifle: ItemInstance = null
+	for instance in state.inventory:
+		if instance.item_id == &"battle_rifle":
+			rifle = instance
+	var carrier: OperatorData = state.roster[0] if not state.roster.is_empty() else null
+
+	if rifle != null and carrier != null:
+		var job := MissionFactory.create(Game.campaign.rng, GameEnums.MissionType.ASSAULT)
+		Game.campaign.equip(carrier, rifle, ItemData.Slot.WEAPON)
+		ItemHistory.record_kills(rifle, carrier, 9, 12, job)
+		rifle.contracts = 7
+		ItemHistory.record_broken(rifle, 18, job)
+		ItemHistory.record_rebuild(rifle, 21)
+		if not state.cemetery.is_empty():
+			ItemHistory.record_loss(rifle, state.cemetery[0], 24, job)
+			ItemHistory.record_issue(rifle, carrier, 25)
+
+	var screen = _hq._drawer_content.get_child(0)
+	if rifle != null and screen != null:
+		screen._selected_uid = rifle.uid
+		screen.refresh()
 
 
 func _capture(name: String) -> void:

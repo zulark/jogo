@@ -248,6 +248,22 @@ static func _phrase(type: int) -> String:
 			return "cannot stand each other"
 
 
+## The shortest true thing that can be said about a link.
+##
+## `describe` below is the roster sheet's version and carries the depth as well
+## ("Close friendship"). This one is for a list column standing beside a name,
+## where the depth is not what the player is deciding on — whether these two
+## should be on the same contract is.
+static func short_word(type: int) -> String:
+	match type:
+		GameEnums.BondType.FRIENDSHIP:
+			return "Friends"
+		GameEnums.BondType.ROMANCE:
+			return "Together"
+		_:
+			return "Rivals"
+
+
 ## Plain-English label for the roster sheet.
 static func describe(type: int, bond_strength: int) -> String:
 	var depth: String = "Close" if bond_strength >= 70 else ("Growing" if bond_strength >= 35 else "New")

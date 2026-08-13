@@ -17,8 +17,20 @@ var _confirming_dismiss := false
 ## Sorting and filtering. A company of twenty is unmanageable without them, and
 ## "who is my best medic" is a question the roster should answer directly.
 var _search := ""
-var _sort_key: int = -1   ## -1 = name; otherwise a GameEnums.Skill.
+var _sort_key: int = SORT_NAME
 var _hide_unavailable := false
+
+## Sort keys that are not skills. Negative so a GameEnums.Skill can be used
+## directly as the key for everything else.
+const SORT_NAME := -1
+const SORT_RATING := -2
+
+## Parallel to the sorter's items, because an OptionButton id of -1 means "use
+## the index" — so "Sort: Name" registered itself as id 0, which is COMBAT, and
+## picking it off the dropdown sorted the roster by combat skill. Holding the
+## keys in an array indexed by position removes the collision rather than
+## working around it.
+var _sort_options: Array[int] = []
 
 
 func _ready() -> void:
@@ -82,7 +94,9 @@ func _visible_roster(state: GameState) -> Array:
 				continue
 		shown.append(op)
 
-	if _sort_key < 0:
+	if _sort_key == SORT_RATING:
+		shown.sort_custom(func(a, b): return Ovr.overall(a) > Ovr.overall(b))
+	elif _sort_key == SORT_NAME:
 		shown.sort_custom(func(a, b): return a.display_label() < b.display_label())
 	else:
 		shown.sort_custom(func(a, b): return a.get_skill(_sort_key) > b.get_skill(_sort_key))
@@ -106,11 +120,16 @@ func _build_controls() -> void:
 	var sorter := OptionButton.new()
 	sorter.custom_minimum_size = Vector2(150, 30)
 	sorter.add_theme_font_size_override("font_size", UiStyle.SIZE_SMALL)
-	sorter.add_item("Sort: Name", -1)
+
+	_sort_options = [SORT_NAME, SORT_RATING]
+	sorter.add_item("Sort: Name")
+	sorter.add_item("Sort: Rating")
 	for skill in GameEnums.Skill.values():
-		sorter.add_item("Sort: %s" % GameEnums.skill_name(skill), skill)
+		sorter.add_item("Sort: %s" % GameEnums.skill_name(skill))
+		_sort_options.append(skill)
+
 	sorter.item_selected.connect(func(index: int):
-		_sort_key = sorter.get_item_id(index)
+		_sort_key = _sort_options[index]
 		refresh()
 	)
 	controls.add_child(sorter)
@@ -140,7 +159,11 @@ func _make_row(op: OperatorData) -> Button:
 
 	var row := UiStyle.row_content(button)
 	row.add_child(UiStyle.portrait(op, 38))
-	row.add_child(UiStyle.role_icon(op.preferred_role, UiStyle.SIZE_HEADING))
+
+	# No role glyph on the row. This list is always grouped by role and each
+	# group's heading carries the same glyph in the same colour three pixels
+	# above, so the per-row copy said nothing the eye had not just read — and the
+	# rating column needed the width it was holding.
 	row.add_child(UiStyle.rank_icon(op.rank, UiStyle.SIZE_BODY))
 	row.add_child(UiStyle.operator_identity(
 		op,
@@ -148,6 +171,14 @@ func _make_row(op: OperatorData) -> Button:
 			GameEnums.role_name(op.preferred_role),
 			op.demonym(),
 		]))
+
+	# What they are worth, averaged over every kind of work on the board. This is
+	# the column the roster is scanned by once the company is more than six
+	# people — and it is deliberately the OVERALL figure here, because this
+	# screen has no contract in front of it. The rating that decides a
+	# deployment is the one in the squad builder, against the job in hand.
+	row.add_child(UiStyle.stat("Rating", str(Ovr.overall(op)), UiStyle.TEXT, 56))
+
 	row.add_child(UiStyle.fatigue_meter(op, 74))
 	row.add_child(UiStyle.stat(
 		"Status", UiStyle.status_text(op), UiStyle.status_color(op.status), 104))
@@ -161,7 +192,13 @@ func _make_row(op: OperatorData) -> Button:
 		"BROKEN" if op.has_unserviceable_kit() else "—",
 		UiStyle.RUST if op.has_unserviceable_kit() else UiStyle.TEXT_3,
 		72))
-	row.add_child(UiStyle.stat("Weekly", str(op.salary), UiStyle.TEXT_2, 60))
+
+	# No salary column. The row's declared widths came to more than the list is
+	# ever given, so the last column was cut off by the panel edge and the
+	# identity block — which absorbs whatever is left over — was squeezed until
+	# nationalities read "M…" and "Jap…". Salary was the right column to drop:
+	# it is the only one already printed in full on the detail panel two inches
+	# to the right, and nobody scans a roster by what people cost.
 
 	return button
 
@@ -188,6 +225,12 @@ func _rebuild_detail() -> void:
 	display_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	header_text.add_child(display_name)
 	header.add_child(header_text)
+
+	# The headline figure of the whole sheet. Everything under "Suited to" below
+	# is this number taken apart by the kind of work — read in that order, a
+	# player learns that one rating of 64 is a marksman and another is somebody
+	# who is passable at everything and needed nowhere.
+	header.add_child(UiStyle.stat("Rating", str(Ovr.overall(op)), UiStyle.TEXT, 76))
 	_detail.add_child(header)
 
 	# Renaming is how a roster becomes yours — the Dwarf Fortress move. Callsign
@@ -384,6 +427,20 @@ func _rebuild_detail() -> void:
 		_detail.add_child(_meter(
 			caption, op.skill_progress(skill), UiStyle.OCHRE, op.get_skill(skill)))
 
+	# The skills above, taken apart by what the board actually offers. This is
+	# where a player learns to read the rating on a list row: the same person is
+	# 78 on sabotage and 44 on assault, and the contract says which one is being
+	# asked for. Sorted best first, so the top line is what they are FOR.
+	_section("Suited to")
+	for entry in Ovr.ranked_work(op):
+		_detail.add_child(UiStyle.meter_row(
+			GameEnums.mission_type_name(entry["type"]),
+			int(entry["rating"]),
+			UiStyle.mission_type_color(entry["type"])))
+	_detail.add_child(UiStyle.text(
+		"Skills only. What they are carrying counts; fatigue and morale do not.",
+		UiStyle.SIZE_CAPTION, UiStyle.TEXT_3))
+
 	_section("Temperament")
 	for axis in GameEnums.PersonalityAxis.values():
 		_detail.add_child(_meter(GameEnums.axis_name(axis), op.get_personality(axis)))
@@ -532,46 +589,13 @@ func _section(caption: String) -> void:
 	_detail.add_child(UiStyle.spacer(2))
 
 
-## Label, bar, figure. The figure is monospace so the column stays straight
-## whether the value is 7 or 97.
+## Label, bar, figure. Lives in UiStyle now — the same row shape draws skills
+## here, what a squad brings in stealth on the briefing panel, and what an
+## operator rates on each kind of work under "Suited to" above.
 func _meter(
 	caption: String,
 	value: int,
 	color: Color = UiStyle.OCHRE,
 	shown_value: int = -1
 ) -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-
-	var name_label := UiStyle.text(caption, UiStyle.SIZE_SMALL, UiStyle.TEXT_2)
-	name_label.custom_minimum_size.x = 108
-	row.add_child(name_label)
-
-	# The bar styles itself rather than sitting inside a PanelContainer — a
-	# container squeezes it back down to a hairline.
-	var bar := ProgressBar.new()
-	bar.max_value = 100
-	bar.value = value
-	bar.show_percentage = false
-	bar.custom_minimum_size.y = 10
-	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	UiStyle.grow(bar)
-
-	var track := StyleBoxFlat.new()
-	track.bg_color = UiStyle.INK
-	track.set_corner_radius_all(2)
-	bar.add_theme_stylebox_override("background", track)
-
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = color
-	fill.set_corner_radius_all(2)
-	bar.add_theme_stylebox_override("fill", fill)
-	row.add_child(bar)
-
-	var value_label := UiStyle.data(
-		str(value if shown_value < 0 else shown_value), UiStyle.SIZE_SMALL, UiStyle.TEXT)
-	value_label.custom_minimum_size.x = 38
-	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(value_label)
-
-	return row
+	return UiStyle.meter_row(caption, value, color, shown_value)

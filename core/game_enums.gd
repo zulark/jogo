@@ -193,6 +193,19 @@ static func rank_name(rank: int) -> String:
 	return Rank.keys()[rank].capitalize().replace("_", " ")
 
 
+## The rank as it is said rather than as it fits in a column. "Sergeant Second"
+## is an abbreviation the list view can afford and a sentence cannot.
+const RANK_FULL_NAMES := {
+	Rank.SERGEANT_THIRD: "Sergeant Third Class",
+	Rank.SERGEANT_SECOND: "Sergeant Second Class",
+	Rank.SERGEANT_FIRST: "Sergeant First Class",
+}
+
+
+static func rank_full_name(rank: int) -> String:
+	return str(RANK_FULL_NAMES.get(rank, rank_name(rank)))
+
+
 ## Insignia. Chevrons climb the field track, diamonds climb the instructor
 ## track, and the Warrant Officer pip sits between them — so the career fork is
 ## legible at a glance without reading a word.

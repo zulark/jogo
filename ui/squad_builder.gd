@@ -17,6 +17,8 @@ signal cancelled()
 @onready var _deploy_button: Button = %DeployButton
 @onready var _warning: Label = %Warning
 @onready var _mission_title: Label = %MissionTitle
+@onready var _ties: VBoxContainer = %Ties
+@onready var _ties_heading: Label = %TiesHeading
 
 var mission: MissionData = null
 var _squad := Squad.new()
@@ -52,12 +54,59 @@ func refresh() -> void:
 	for op in members:
 		_squad_list.add_child(_make_squad_row(op))
 
+	_build_ties(members)
 	_briefing.show_report(Game.campaign.preview_mission(_squad, mission))
 
 	var errors := _squad.validation_errors()
 	_deploy_button.disabled = not errors.is_empty()
 	_warning.text = errors[0] if not errors.is_empty() else ""
 	_warning.visible = not errors.is_empty()
+
+
+## Who these people already are to each other, and why.
+##
+## The resolver has scored bonds since v0.4 and this screen has never once
+## mentioned them, so the term moved the odds and the player had no way to know
+## which of their own decisions caused it. The causes are the point: "They
+## blamed each other for how Salt the Wells went" is why the player remembers
+## the pair, and it is stored on the bond already.
+func _build_ties(members: Array) -> void:
+	for child in _ties.get_children():
+		child.queue_free()
+
+	var ties := UiStyle.bond_ties(members)
+	_ties.visible = not ties.is_empty()
+	_ties_heading.visible = not ties.is_empty()
+
+	for tie in ties:
+		var color: Color = Bonds.color_for(tie["type"])
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 8)
+
+		line.add_child(UiStyle.text(
+			Bonds.describe(tie["type"], tie["strength"]).to_upper(),
+			UiStyle.SIZE_CAPTION, color))
+
+		# EXPAND_FILL is not optional next to clip_text: clipping drops a label's
+		# minimum width to zero, so without it the names collapse to nothing and
+		# the row prints the relationship with nobody in it.
+		var who := UiStyle.text("%s and %s" % [
+			tie["a"].short_label(), tie["b"].short_label()],
+			UiStyle.SIZE_SMALL, UiStyle.TEXT)
+		who.clip_text = true
+		who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		UiStyle.grow(who)
+		line.add_child(who)
+		_ties.add_child(line)
+
+		# A bond formed before causes were recorded has none. Printing an empty
+		# line under the pair would read as a missing string rather than as a
+		# link nobody wrote a reason for.
+		var reason: String = tie["reason"]
+		if not reason.is_empty():
+			var note := UiStyle.text(reason, UiStyle.SIZE_CAPTION, UiStyle.TEXT_3)
+			note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_ties.add_child(note)
 
 
 func _make_available_row(op: OperatorData) -> Button:
@@ -74,12 +123,34 @@ func _make_available_row(op: OperatorData) -> Button:
 
 	# You pick people by what they are and how worn out they are, so both have to
 	# be on the row rather than a screen away.
-	var box := UiStyle.operator_identity(
-		op, "%s   ·   %s" % [GameEnums.role_name(op.preferred_role), op.demonym()])
-	box.add_child(UiStyle.skill_summary(op, 3, UiStyle.SIZE_CAPTION))
+	#
+	# Role alone, without the nationality — the same call the squad rows below
+	# already make, and now for the same reason. This row gained a rating column,
+	# and the second line runs callsign then role then nationality, which was the
+	# line that could not afford it: "Brine" Engineer · Amer…". The role is the
+	# half that decides whether somebody belongs on this contract; where they are
+	# from is on their sheet.
+	var box := UiStyle.operator_identity(op, GameEnums.role_name(op.preferred_role))
+	# Two skills, not three. The rating column beside this is the weighted read of
+	# exactly these numbers against exactly this contract, so a third raw figure
+	# earns less than the width it costs — and width is what this row is short of:
+	# the identity block was down to its declared floor, which is why nationalities
+	# were reading "K…".
+	box.add_child(UiStyle.skill_summary(op, 2, UiStyle.SIZE_CAPTION))
 	row.add_child(box)
 
-	row.add_child(UiStyle.fatigue_meter(op))
+	# What they are worth ON THIS CONTRACT, which is not what the roster's rating
+	# column said about them. That difference is the decision this screen exists
+	# to put in front of the player: the highest overall rating in the company can
+	# be the wrong person to send to a sabotage job, and the same person carrying
+	# two different numbers on two screens is how they find that out.
+	row.add_child(UiStyle.stat(
+		"This job", str(Ovr.on_type(op, mission.mission_type)), UiStyle.TEXT, 62))
+
+	# What adding this person would mean for the people already picked. Empty and
+	# invisible when there is no history, which is most of the time early on.
+	row.add_child(UiStyle.bond_column(op, _squad.members()))
+	row.add_child(UiStyle.fatigue_meter(op, 58))
 	return button
 
 
@@ -133,6 +204,12 @@ func _make_squad_row(op: OperatorData) -> Control:
 		op,
 		GameEnums.role_name(_squad.role_of(op)),
 		UiStyle.STEEL if is_leader else UiStyle.TEXT))
+
+	# The same figure the available list showed, kept beside them once they are
+	# picked — otherwise the number that justified the choice disappears the
+	# moment it is made, and the squad cannot be read for who is carrying it.
+	row.add_child(UiStyle.stat(
+		"This job", str(Ovr.on_type(op, mission.mission_type)), UiStyle.TEXT, 64))
 
 	row.add_child(UiStyle.fatigue_meter(op, 58))
 

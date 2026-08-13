@@ -75,6 +75,14 @@ func _make_marker(mission: MissionData, index: int, total: int) -> Button:
 	button.tooltip_text = "%s\n%s · %s\nDifficulty %.0f · Risk %.0f" % [
 		mission.title, mission.client_name(), mission.region_name(),
 		mission.difficulty, mission.risk]
+
+	# What the company already knows about the place, if it has been. Appended
+	# rather than replacing anything: this answers "have we been here before",
+	# which is a different question from "what is this job".
+	if Game.campaign != null:
+		var history := RegionLog.summary(Game.campaign.state, mission.region_id)
+		if not history.is_empty():
+			button.tooltip_text += "\n\n" + history
 	button.set_meta("mission", mission)
 	button.set_meta("index", index)
 	button.set_meta("total", total)
@@ -155,9 +163,26 @@ func _draw() -> void:
 	for marker in _markers:
 		taken.append(Rect2(marker.position, marker.size))
 
+	# The company's own record, if there is a company. The map is also built by
+	# the editor's scene preview, where there is not.
+	var state: GameState = Game.campaign.state if Game.campaign != null else null
+
 	for region_id in RegionLibrary.ids():
 		var point := _region_point(region_id)
-		draw_circle(point, 3.0, UiStyle.RULE_BRIGHT)
+
+		# Places the company has worked are drawn heavier than places it has only
+		# heard of, and a place it has buried somebody in carries a ring. This is
+		# the whole difference between a map and a picture of one: after twenty
+		# hours the player should recognise somewhere before reading its name.
+		var worked: int = RegionLog.weight(state, region_id) if state != null else 0
+		var buried: int = int(RegionLog.entry(state, region_id)["dead"]) if state != null else 0
+
+		if worked > 0:
+			if buried > 0:
+				draw_arc(point, 7.0, 0.0, TAU, 20, UiStyle.RUST, 1.5)
+			draw_circle(point, 2.0 + float(worked), UiStyle.OCHRE)
+		else:
+			draw_circle(point, 3.0, UiStyle.RULE_BRIGHT)
 
 		var label: String = RegionLibrary.region_name(region_id)
 		var extent := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE)
@@ -165,7 +190,8 @@ func _draw() -> void:
 		taken.append(Rect2(spot - Vector2(0, extent.y), extent))
 
 		draw_string(
-			font, spot, label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE, UiStyle.TEXT_3)
+			font, spot, label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE,
+			UiStyle.TEXT_2 if worked > 0 else UiStyle.TEXT_3)
 
 
 ## Where a place name can sit without landing on anything already drawn.

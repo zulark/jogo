@@ -12,16 +12,25 @@ extends VBoxContainer
 ## v0.5 rule was that twelve identical carbines should be one line saying
 ## twelve; twelve carbines at twelve different conditions are twelve things, and
 ## collapsing them would hide the only fact on the screen worth acting on.
+##
+## The panel beside the list is the service record — where a copy came from, who
+## has carried it, what it has killed. A row can only afford the state a player
+## acts on; everything a copy has *been* through belongs next to it.
 
 signal company_changed()
 
 @onready var _list: VBoxContainer = %StockList
 @onready var _summary: Label = %Summary
 @onready var _filter_row: HBoxContainer = %FilterRow
+@onready var _record: VBoxContainer = %RecordBody
 
 ## -1 shows everything; otherwise an ItemData.Slot.
 var _slot_filter: int = -1
 var _only_spare := false
+
+## By uid rather than by reference, so a selection survives the item being sold,
+## scrapped or lost while the screen is open.
+var _selected_uid: StringName = &""
 
 
 func _ready() -> void:
@@ -104,22 +113,18 @@ func refresh() -> void:
 	_summary.add_theme_color_override("font_color",
 		UiStyle.RUST if broken > 0 or not state.has_storage_room() else UiStyle.TEXT_2)
 
+	_show_record(state)
+
 
 func _make_row(instance: ItemInstance, state: GameState) -> Control:
-	var item := instance.data()
-	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", UiStyle.panel(UiStyle.ROW))
+	var button := UiStyle.row_button(instance.uid == _selected_uid)
+	button.custom_minimum_size.y = UiStyle.ROW_HEIGHT_COMPACT
+	button.pressed.connect(func():
+		_selected_uid = instance.uid
+		refresh()
+	)
 
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
-	card.add_child(box)
-
-	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 12)
-	header.add_child(UiStyle.identity(
-		instance.display_name(),
-		"%s  ·  %s" % [instance.condition_text(), instance.effect_text()]))
-	header.add_child(UiStyle.condition_meter(instance, 96))
+	var row := UiStyle.row_content(button)
 
 	var holder := state.holder_of(instance)
 	var where := "Spare"
@@ -130,7 +135,17 @@ func _make_row(instance: ItemInstance, state: GameState) -> Control:
 	elif state.is_in_workshop(instance):
 		where = "Bench"
 		where_color = UiStyle.OCHRE
-	header.add_child(UiStyle.stat("Status", where, where_color, 78))
+
+	var second: String = instance.condition_text()
+	if holder != null:
+		second += "  ·  %s" % holder.display_label()
+	var headline := ItemHistory.headline(instance)
+	if not headline.is_empty():
+		second += "  ·  %s" % headline
+
+	row.add_child(UiStyle.identity(instance.display_name(), second))
+	row.add_child(UiStyle.condition_meter(instance, 96))
+	row.add_child(UiStyle.stat("Status", where, where_color, 78))
 
 	var value := Game.campaign.resale_value(instance)
 	var sell := UiStyle.confirm_button("Sell %d" % value, "Sure?", func():
@@ -140,25 +155,51 @@ func _make_row(instance: ItemInstance, state: GameState) -> Control:
 	, 96)
 	sell.custom_minimum_size = Vector2(96, 34)
 	sell.disabled = not state.is_spare(instance)
-	header.add_child(sell)
-	box.add_child(header)
+	row.add_child(sell)
 
-	var notes: PackedStringArray = []
-	if holder != null:
-		notes.append("Carried by %s" % holder.display_label())
-	elif state.is_in_workshop(instance):
-		notes.append("On the bench")
-	if instance.contracts > 0:
-		notes.append(TextUtil.count(instance.contracts, "contract"))
-	if instance.max_condition < Balance.CONDITION_NEW:
-		notes.append("rebuilt — will not go past %d%%" % int(round(instance.max_condition)))
-	if item != null and item.counters_hazard != GameEnums.Hazard.NONE:
-		notes.append("cancels %s" % GameEnums.hazard_phrase(item.counters_hazard))
+	return button
 
-	if not notes.is_empty():
-		var line := UiStyle.text(
-			"  ·  ".join(notes), UiStyle.SIZE_SMALL, UiStyle.TEXT_3)
-		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		box.add_child(line)
 
-	return card
+func _show_record(state: GameState) -> void:
+	for child in _record.get_children():
+		child.queue_free()
+
+	var instance := state.find_instance(_selected_uid)
+	if instance == null:
+		_record.add_child(_line(
+			"Pick something off the rack. Every copy keeps its own record — where "
+			+ "it came from, who has carried it, and what it has done.", UiStyle.TEXT_3))
+		return
+
+	_record.add_child(UiStyle.title(instance.display_name(), UiStyle.SIZE_BODY))
+
+	var item := instance.data()
+	if item != null and not item.description.is_empty():
+		_record.add_child(_line(item.description, UiStyle.TEXT_3))
+
+	var facts := HBoxContainer.new()
+	facts.add_theme_constant_override("separation", 10)
+	facts.add_child(UiStyle.stat("Condition", instance.condition_text(), UiStyle.TEXT, 132))
+	facts.add_child(UiStyle.stat("Contracts", str(instance.contracts), UiStyle.TEXT, 78))
+	# Gear cannot kill anybody, so a kill column under a plate carrier is a zero
+	# that will never be anything else.
+	if instance.slot() == ItemData.Slot.WEAPON:
+		facts.add_child(UiStyle.stat("Confirmed", str(instance.kills), UiStyle.TEXT, 78))
+	_record.add_child(facts)
+
+	_record.add_child(UiStyle.eyebrow("History"))
+	var written := ItemHistory.lines(instance)
+	if written.is_empty():
+		_record.add_child(_line(
+			"Nothing on it yet. It has not been anywhere.", UiStyle.TEXT_3))
+	for entry in written:
+		_record.add_child(_line(entry, UiStyle.TEXT_2))
+
+
+## Every label in this panel wraps. An unwrapped one makes its natural width the
+## panel's minimum and takes the difference out of the list beside it.
+func _line(content: String, color: Color) -> Label:
+	var label := UiStyle.text(content, UiStyle.SIZE_SMALL, color)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.custom_minimum_size.x = 400
+	return label

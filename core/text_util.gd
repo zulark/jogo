@@ -12,6 +12,13 @@ extends RefCounted
 const _NUMBER_WORDS := [
 	"no", "one", "two", "three", "four", "five", "six",
 	"seven", "eight", "nine", "ten", "eleven", "twelve",
+	"thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+	"eighteen", "nineteen",
+]
+
+const _TENS := [
+	"", "", "twenty", "thirty", "forty", "fifty",
+	"sixty", "seventy", "eighty", "ninety",
 ]
 
 
@@ -33,10 +40,20 @@ static func spelled(n: int, singular: String, plural: String = "") -> String:
 	return "%s %s" % [number(n), noun(n, singular, plural)]
 
 
-## The number as a word up to twelve, as digits past that.
+## The number as a word below a hundred, as digits past that.
+##
+## Prose spells these out; a hedge does not survive a digit. "They served on
+## roughly 25 contracts" reads as a field that escaped its form, and it was the
+## reason the biography looked generated.
 static func number(n: int) -> String:
-	if n >= 0 and n < _NUMBER_WORDS.size():
+	if n < 0:
+		return str(n)
+	if n < _NUMBER_WORDS.size():
 		return _NUMBER_WORDS[n]
+	if n < 100:
+		var tens: String = _TENS[n / 10]
+		var unit: int = n % 10
+		return tens if unit == 0 else "%s-%s" % [tens, _NUMBER_WORDS[unit]]
 	return str(n)
 
 

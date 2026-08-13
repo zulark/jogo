@@ -26,6 +26,7 @@ func _initialize() -> void:
 	_check_after_action()
 	_check_bond_reasons()
 	_check_resume()
+	_check_item_history()
 	_check_descriptions()
 	_check_coverage()
 
@@ -205,6 +206,16 @@ func _check_briefings() -> void:
 ## and "Whoever Is Left" for containing "he".
 const _GENDERED := ["he", "she", "him", "her", "hers", "his", "himself", "herself"]
 
+## Words that would make a personality note trespass on the bond system.
+const _BOND_WORDS := ["friend", "friends", "friendly", "rival", "rivals",
+	"liked", "disliked", "popular", "loner"]
+
+## A personality note describes a DISPOSITION, which is knowable from meeting
+## somebody. These words turn it into a history, and the note is printed for
+## recruits who have never been anywhere — "nobody has ever accused them of
+## hanging back" about a private with no service is a claim nobody could make.
+const _RECORD_WORDS := ["never", "ever", "always"]
+
 
 func _check_titles() -> void:
 	for mission_type in MissionFactory.TITLES:
@@ -255,9 +266,9 @@ func _check_bond_reasons() -> void:
 				_fail(where, text, "uses a placeholder other than {title} or {place}")
 
 
-## A seniority phrase completes "<label> is <a nationality rank>, and ___." — a
-## frame that already contains a comma and an "and", so the phrase may contain
-## neither. A reputation line stands alone at the end of the paragraph.
+## A seniority phrase completes "<label> is <a nationality rank> and ___." — so
+## it is a lower-case noun phrase carrying no punctuation of its own. A
+## reputation or personality line stands alone as a sentence.
 func _check_resume() -> void:
 	for band in OperatorData.SENIORITY:
 		var where := "resume / seniority (%s)" % band
@@ -272,7 +283,7 @@ func _check_resume() -> void:
 			if _ends_in_stop(text):
 				_fail(where, text, "ends in a stop, but it lands mid-sentence")
 			if text.contains(","):
-				_fail(where, text, "contains a comma; the frame already supplies ', and'")
+				_fail(where, text, "contains a comma; it sits behind a bare 'and'")
 			_require_no_placeholder(where, text)
 
 	for gate in OperatorData.REPUTATION:
@@ -280,6 +291,128 @@ func _check_resume() -> void:
 		for line in OperatorData.REPUTATION[gate]:
 			_require_sentence(where, str(line))
 			_require_no_placeholder(where, str(line))
+
+	# Every personality note has to be reachable, or an axis is described by a
+	# pool that is never drawn. The key is built from the axis name at runtime.
+	for axis in GameEnums.PersonalityAxis.values():
+		for edge in ["high", "low"]:
+			var key := "%s_%s" % [GameEnums.axis_name(axis).to_lower(), edge]
+			_checked += 1
+			if not OperatorData.PERSONALITY_NOTES.has(key):
+				_fail("resume / personality", key, "no pool for this axis and direction")
+				continue
+			for line in OperatorData.PERSONALITY_NOTES[key]:
+				_require_sentence("resume / personality (%s)" % key, str(line))
+				_require_no_placeholder("resume / personality (%s)" % key, str(line))
+
+	# Nothing in PERSONALITY_NOTES may claim a bond. Bonds are their own system,
+	# and "they keep to themselves" above a listed friendship is a contradiction
+	# the player can see on the next screen.
+	#
+	# Matched WHOLE-WORD, like _GENDERED above and TextUtil's article lists: a
+	# substring test flags "the new arrivals" for containing "rival".
+	for key in OperatorData.PERSONALITY_NOTES:
+		for line in OperatorData.PERSONALITY_NOTES[key]:
+			_checked += 1
+			for word in str(line).split(" ", false):
+				var bare := word.to_lower().lstrip("(\"'").rstrip(",;:!?\")'.")
+				if _BOND_WORDS.has(bare):
+					_fail("resume / personality (%s)" % key, str(line),
+						"claims a relationship; bonds are a separate system")
+					break
+				if _RECORD_WORDS.has(bare):
+					_fail("resume / personality (%s)" % key, str(line),
+						"claims a history; this line is printed for people who have none")
+					break
+
+	# Rendered rather than read: the count and the article arrive already
+	# composed, so an entry that wrote "roughly {record}" or "a {record}" would
+	# double them and only the substituted string shows it.
+	for template in OperatorData.SERVICE_ELSEWHERE:
+		var where := "resume / service elsewhere"
+		var text: String = str(template)
+		_checked += 1
+		var stripped := text.replace("{who}", "").replace("{record}", "")
+		if stripped.contains("{") or stripped.contains("}"):
+			_fail(where, text, "uses a key other than {who} or {record}")
+		if not text.begins_with("{who}"):
+			_fail(where, text, "must open on the operator, which is the sentence's subject")
+
+		for record in ["a single contract", "roughly eleven contracts"]:
+			var rendered: String = text.format({"who": "Husk", "record": record})
+			_require_sentence(where, rendered)
+			_checked += 1
+			if rendered.contains("{") or rendered.contains("}"):
+				_fail(where, rendered, "left a placeholder unsubstituted")
+
+	# The biography is capped, so the stage list and the cap have to agree that
+	# something can be dropped. A cap above the number of stages is dead code.
+	_checked += 1
+	if OperatorData.BIO_MAX_SENTENCES < 3:
+		_fail("resume / cap", str(OperatorData.BIO_MAX_SENTENCES),
+			"too low to fit identity, service and capability")
+
+
+## The three grammatical classes of kit. A history line has to come out as a
+## sentence against all of them, which is the whole reason ItemData keeps a table
+## of plurals and mass nouns instead of testing for a trailing "s".
+const _ITEM_CLASSES := [&"service_carbine", &"night_optics", &"altitude_kit"]
+
+## Every key ItemHistory.render() supplies. Anything else in a template prints
+## raw, exactly as an unknown {key} does in a bond reason.
+const _HISTORY_KEYS := [
+	"{item}", "{item_mid}", "{was}", "{is}", "{have}", "{they}", "{they_cap}",
+	"{them}", "{who}", "{what}", "{where}", "{day}", "{value}",
+]
+
+
+func _check_item_history() -> void:
+	var pools: Array = []
+	for kind in ItemHistory.LINES:
+		pools.append(["item history (%s)" % kind, str(ItemHistory.LINES[kind])])
+	for key in ItemHistory.SUMMARY:
+		pools.append(["item history / summary (%s)" % key, str(ItemHistory.SUMMARY[key])])
+
+	for pool in pools:
+		var where: String = pool[0]
+		var template: String = pool[1]
+
+		_checked += 1
+		var stripped := template
+		for key in _HISTORY_KEYS:
+			stripped = stripped.replace(key, "")
+		if stripped.contains("{") or stripped.contains("}"):
+			_fail(where, template, "uses a key ItemHistory.render() does not supply")
+
+		# Rendered rather than read: a template is not a sentence until the
+		# placeholders are filled, and the placeholders are where the grammar is.
+		for item_id in _ITEM_CLASSES:
+			var instance := ItemInstance.create(item_id)
+			var rendered := ItemHistory.render(template, instance, {
+				"day": 12, "who": "Kim Ji-ho \"Nail\"", "what": "Salt the Wells",
+				"where": "the Kunar Valley", "value": 74,
+			})
+			_require_sentence("%s / %s" % [where, item_id], rendered)
+			_checked += 1
+			if rendered.contains("{") or rendered.contains("}"):
+				_fail(where, rendered, "left a placeholder unsubstituted")
+
+	# The naming rule, checked where it is decided rather than where it is
+	# printed: a name that is not a possessive breaks definite() everywhere.
+	var op := OperatorData.new()
+	op.operator_name = "Yamamoto Mizuki"
+	op.callsign = "Ivory"
+	_checked += 1
+	if ItemHistory.name_after(op) != "Ivory's":
+		_fail("item history / earned name", ItemHistory.name_after(op),
+			"must be the possessive of the callsign")
+
+	var named := ItemInstance.create(&"night_optics")
+	named.earned_name = ItemHistory.name_after(op)
+	_checked += 1
+	if named.definite().begins_with("the ") or named.indefinite().begins_with("a "):
+		_fail("item history / earned name", named.definite(),
+			"a possessive name must replace the article, not sit behind it")
 
 
 func _check_descriptions() -> void:

@@ -67,6 +67,10 @@ var reputation: int = Balance.REPUTATION_START
 ## be famous and still be the last people the Cartel would call.
 var faction_standing: Dictionary = {}
 
+## RegionLibrary id -> what the company has done there. Written only by
+## `RegionLog`; see that file for why the map needed somewhere to remember.
+var region_log: Dictionary = {}
+
 ## Deployed headcount for the current week, reset each week close. Ammunition is
 ## billed on work actually done, not on who happens to be out on payday.
 var deployed_this_week: int = 0
@@ -500,6 +504,7 @@ func to_dict() -> Dictionary:
 		"inventory": inventory_data,
 		"reputation": reputation,
 		"faction_standing": faction_standing.duplicate(),
+		"region_log": region_log.duplicate(true),
 		"deployed_this_week": deployed_this_week,
 		"deployed_last_week": deployed_last_week,
 		"day": day,
@@ -525,6 +530,16 @@ static func from_dict(data: Dictionary) -> GameState:
 		state.facilities[StringName(str(id))] = int(data["facilities"][id])
 	for id in data.get("faction_standing", {}):
 		state.faction_standing[StringName(str(id))] = int(data["faction_standing"][id])
+
+	# A save written before the company kept a record of where it had been comes
+	# back with none, which is the honest reading: those contracts happened, but
+	# nothing was watching, and inventing a history for them would be exactly the
+	# fabrication the map exists to avoid.
+	for id in data.get("region_log", {}):
+		var record: Dictionary = {}
+		for key in data["region_log"][id]:
+			record[str(key)] = int(data["region_log"][id][key])
+		state.region_log[StringName(str(id))] = record
 	state.salvage = int(data.get("salvage", 0))
 	for id in data.get("blueprints", []):
 		state.blueprints.append(StringName(str(id)))

@@ -44,6 +44,8 @@ const SQUAD_BUILDER_SCENE := preload("res://ui/squad_builder.tscn")
 ## building a squad should not cost you the squad.
 var _open_drawer := ""
 @onready var _end_day_button: Button = %EndDayButton
+@onready var _system_button: MenuButton = %SystemButton
+@onready var _tab_row: HBoxContainer = %TabRow
 @onready var _tab_buttons := {
 	Tab.ROSTER: %RosterTab as Button,
 	Tab.CONTRACTS: %ContractsTab as Button,
@@ -110,11 +112,32 @@ func _ready() -> void:
 	# A floor rather than a fixed size: the window can grow as far as the player
 	# likes, and every panel inside holds its width instead of stretching.
 	DisplayServer.window_set_min_size(MIN_WINDOW_SIZE)
+	_build_system_menu()
 	_apply_typography()
 	_apply_content_width()
 	_refresh_status_bar()
 	resized.connect(_apply_content_width)
 	_show_tab(_current_tab)
+
+
+## Save and load, off the top bar.
+##
+## They sat beside End Day as two of the five things on the header, which made
+## the company's operational status share a line with the game engine's
+## controls. Saving is not something a mercenary company does; ending a day is.
+## Behind a menu they are still one click away and no longer compete with the
+## figures the player is meant to be reading.
+func _build_system_menu() -> void:
+	var popup := _system_button.get_popup()
+	popup.clear()
+	popup.add_item("Save game", 0)
+	popup.add_item("Load game", 1)
+	popup.id_pressed.connect(func(id: int):
+		if id == 0:
+			_on_save_pressed()
+		else:
+			_on_load_pressed()
+	)
 
 
 func _apply_typography() -> void:
@@ -138,6 +161,19 @@ func _apply_typography() -> void:
 		button.add_theme_color_override("font_pressed_color", UiStyle.OCHRE)
 		button.add_theme_color_override("font_color", UiStyle.TEXT_3)
 		button.add_theme_color_override("font_hover_color", UiStyle.TEXT)
+
+	# The group captions. Eleven tabs of equal weight told the player nothing
+	# about what kind of thing each one was; three named groups answer "where do
+	# I manage operations, people, the company" before anything is clicked.
+	for group in _tab_row.get_children():
+		for child in group.get_children():
+			if child is Label:
+				child.add_theme_font_override("font", UiStyle.display())
+				child.add_theme_color_override("font_color", UiStyle.TEXT_3)
+
+	_system_button.add_theme_font_size_override("font_size", UiStyle.SIZE_TITLE)
+	_system_button.add_theme_color_override("font_color", UiStyle.TEXT_3)
+	_system_button.add_theme_color_override("font_hover_color", UiStyle.TEXT)
 
 
 func _apply_content_width() -> void:

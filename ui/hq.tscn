@@ -84,17 +84,13 @@ theme_override_colors/font_color = Color(0.925, 0.937, 0.949, 1)
 theme_override_font_sizes/font_size = 18
 text = "0 diamonds"
 
-[node name="SaveButton" type="Button" parent="Layout/Header/HeaderRow"]
-custom_minimum_size = Vector2(64, 38)
+[node name="SystemButton" type="MenuButton" parent="Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(44, 38)
 layout_mode = 2
 size_flags_vertical = 4
-text = "Save"
-
-[node name="LoadButton" type="Button" parent="Layout/Header/HeaderRow"]
-custom_minimum_size = Vector2(64, 38)
-layout_mode = 2
-size_flags_vertical = 4
-text = "Load"
+tooltip_text = "Save and load"
+text = "≡"
 
 [node name="EndDayButton" type="Button" parent="Layout/Header/HeaderRow"]
 unique_name_in_owner = true
@@ -113,85 +109,119 @@ theme_override_constants/margin_left = 20
 theme_override_constants/margin_top = 12
 
 [node name="TabRow" type="HBoxContainer" parent="Layout/Tabs/TabMargin"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="OperationsGroup" type="HBoxContainer" parent="Layout/Tabs/TabMargin/TabRow"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="ContractsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+[node name="OperationsLabel" type="Label" parent="Layout/Tabs/TabMargin/TabRow/OperationsGroup"]
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_colors/font_color = Color(0.408, 0.431, 0.459, 1)
+theme_override_font_sizes/font_size = 12
+text = "OPERATIONS"
+
+[node name="ContractsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/OperationsGroup"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 toggle_mode = true
 text = "Contracts"
 
-[node name="RosterTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+[node name="IntelTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/OperationsGroup"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
-layout_mode = 2
-toggle_mode = true
-text = "Operators"
-
-[node name="RecruitsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
-layout_mode = 2
-toggle_mode = true
-text = "Recruits"
-
-[node name="TrainingTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
-layout_mode = 2
-toggle_mode = true
-text = "Training"
-
-[node name="IntelTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 toggle_mode = true
 text = "Intel"
 
-[node name="BaseTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+[node name="PersonnelGroup" type="HBoxContainer" parent="Layout/Tabs/TabMargin/TabRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PersonnelLabel" type="Label" parent="Layout/Tabs/TabMargin/TabRow/PersonnelGroup"]
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_colors/font_color = Color(0.408, 0.431, 0.459, 1)
+theme_override_font_sizes/font_size = 12
+text = "PERSONNEL"
+
+[node name="RosterTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/PersonnelGroup"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 toggle_mode = true
-text = "Base"
+text = "Operators"
 
-[node name="MarketTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+[node name="RecruitsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/PersonnelGroup"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 toggle_mode = true
-text = "Market"
+text = "Recruits"
 
-[node name="WorkshopTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+[node name="TrainingTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/PersonnelGroup"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 toggle_mode = true
-text = "Workshop"
+text = "Training"
 
-[node name="ClientsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+[node name="BondsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/PersonnelGroup"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
-layout_mode = 2
-toggle_mode = true
-text = "Clients"
-
-[node name="BondsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 toggle_mode = true
 text = "Bonds"
 
-[node name="CemeteryTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow"]
+[node name="CemeteryTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/PersonnelGroup"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(96, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 toggle_mode = true
 text = "Cemetery"
+
+[node name="CompanyGroup" type="HBoxContainer" parent="Layout/Tabs/TabMargin/TabRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CompanyLabel" type="Label" parent="Layout/Tabs/TabMargin/TabRow/CompanyGroup"]
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_colors/font_color = Color(0.408, 0.431, 0.459, 1)
+theme_override_font_sizes/font_size = 12
+text = "COMPANY"
+
+[node name="BaseTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/CompanyGroup"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Base"
+
+[node name="MarketTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/CompanyGroup"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Market"
+
+[node name="WorkshopTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/CompanyGroup"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Workshop"
+
+[node name="ClientsTab" type="Button" parent="Layout/Tabs/TabMargin/TabRow/CompanyGroup"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+toggle_mode = true
+text = "Clients"
 
 [node name="Content" type="MarginContainer" parent="Layout"]
 unique_name_in_owner = true
@@ -268,6 +298,4 @@ unique_name_in_owner = true
 visible = false
 layout_mode = 1
 
-[connection signal="pressed" from="Layout/Header/HeaderRow/SaveButton" to="." method="_on_save_pressed"]
-[connection signal="pressed" from="Layout/Header/HeaderRow/LoadButton" to="." method="_on_load_pressed"]
 [connection signal="pressed" from="Layout/Header/HeaderRow/EndDayButton" to="." method="_on_end_day_pressed"]

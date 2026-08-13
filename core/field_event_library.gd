@@ -728,32 +728,54 @@ static func _extraction_is_burned(
 
 # --- What the player is being quoted ------------------------------------------
 
-## "Odds 58% → 64%". The one sentence every option owes the player, in the same
-## units the squad builder and the briefing use.
+## The one sentence every option owes the player: what it costs, in the units
+## that are actually on screen.
+##
+## This used to read "Odds 58% → 64%". With the success percentage gone from
+## every screen the player sees, quoting it here would be the leak that puts it
+## back — a handful of field decisions is all it takes to learn what each band
+## is worth in points and go back to optimising a number.
+##
+## So the price is quoted twice over, in the two units that survive. The squad
+## score is exact and is on the breakdown the player read before they deployed;
+## it is also literally the value of the `Modifier` this option will append, so
+## the quote and the consequence cannot drift apart. The band says whether that
+## amount of score is enough to change the company's read of the job, which is
+## the part the raw figure does not answer.
 static func _odds(
 	deployment: Deployment,
 	score_delta: float,
 	difficulty_delta: float = 0.0
 ) -> String:
 	var report := deployment.report
-	var before: int = report.chance_percent()
-	var after: int = int(round(MissionResolver.chance_for(
-		report.squad_score + score_delta, report.difficulty + difficulty_delta) * 100.0))
+	var before: int = UiStyle.assessment_band(report)
+	var after: int = UiStyle.assessment_band_for(MissionResolver.chance_for(
+		report.squad_score + score_delta, report.difficulty + difficulty_delta))
 
-	# Against the ceiling — or the floor — a few points of score genuinely buy
-	# nothing, and "Odds 95% → 95%" reads as a broken label rather than as the
-	# truth it is. Say what is actually happening instead.
-	if before == after:
-		return "Odds hold at %d%%" % before
-	return "Odds %d%% → %d%%" % [before, after]
+	var parts: PackedStringArray = []
+	if not is_zero_approx(score_delta):
+		parts.append("Squad score %+.1f" % score_delta)
+	if not is_zero_approx(difficulty_delta):
+		parts.append("threat %+.1f" % difficulty_delta)
+
+	# Against the ceiling — or the floor — points of score genuinely buy nothing,
+	# and a band arrow pointing at itself reads as a broken label rather than as
+	# the truth it is. Say what is actually happening instead.
+	if after == before:
+		parts.append("still reads %s" % UiStyle.assessment_word_for(before).to_lower())
+	else:
+		parts.append("%s → %s" % [
+			UiStyle.assessment_word_for(before).to_lower(),
+			UiStyle.assessment_word_for(after).to_lower()])
+	return ", ".join(parts)
 
 
 static func _standing_odds(deployment: Deployment) -> String:
-	return "Chance of success stands at %d%%." % deployment.report.chance_percent()
+	return "It reads %s from here." % UiStyle.assessment_word(deployment.report).to_lower()
 
 
 static func _now(deployment: Deployment) -> String:
-	return "Chance of success is now %d%%." % deployment.report.chance_percent()
+	return "It reads %s now." % UiStyle.assessment_word(deployment.report).to_lower()
 
 
 # --- Conditions ---------------------------------------------------------------

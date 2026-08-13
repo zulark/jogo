@@ -499,8 +499,10 @@ static func apply(
 			var found: ItemData = affordable[rng.randi() % affordable.size()]
 			# Found kit, so found-kit condition: it turns up used, like the loot
 			# roll's does, rather than as a free item off the shelf.
-			state.inventory.append(ItemInstance.create(found.id, rng.randf_range(
-				Balance.LOOT_CONDITION_MIN, Balance.LOOT_CONDITION_MAX)))
+			var cache := ItemInstance.create(found.id, rng.randf_range(
+				Balance.LOOT_CONDITION_MIN, Balance.LOOT_CONDITION_MAX))
+			ItemHistory.record_origin(cache, ItemHistory.ORIGIN_UNCLAIMED, state.day)
+			state.inventory.append(cache)
 			return "The last squad came back with %s nobody is claiming." % found.indefinite()
 
 		&"commendation":
